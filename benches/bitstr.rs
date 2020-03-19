@@ -72,3 +72,35 @@ fn bench_u32_shl(b: &mut Bencher) {
 fn bench_u64_shl(b: &mut Bencher) {
 	bench_shl!(u64, b);
 }
+
+macro_rules! bench_add {
+	( $block:ty, $bencher:ident ) => {
+		let block_count = BENCH_BYTE_COUNT / std::mem::size_of::<$block>();
+		let blocks: Vec<$block> = std::iter::repeat(42).take(block_count).collect();
+		$bencher.iter(|| {
+			let x = BitString::<$block>::from_blocks(&blocks);
+			let y = BitString::<$block>::from_blocks(&blocks);
+			x + y
+		});
+	};
+}
+
+#[bench]
+fn bench_u8_add(b: &mut Bencher) {
+	bench_add!(u8, b);
+}
+
+#[bench]
+fn bench_u16_add(b: &mut Bencher) {
+	bench_add!(u16, b);
+}
+
+#[bench]
+fn bench_u32_add(b: &mut Bencher) {
+	bench_add!(u32, b);
+}
+
+#[bench]
+fn bench_u64_add(b: &mut Bencher) {
+	bench_add!(u64, b);
+}

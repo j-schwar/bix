@@ -6,7 +6,7 @@ pub mod iter;
 use block::Block;
 use iter::{IntoIter, Iter};
 use std::iter::FromIterator;
-use std::ops::{BitAnd, BitOr, BitXor, Not, Shl};
+use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Shl};
 
 pub use iter::PartialBlock;
 
@@ -259,6 +259,36 @@ impl<B: Block> Shl<usize> for BitString<B> {
 		for partial_block in self.into_blocks() {
 			let block = partial_block.value;
 			let (new_block, carry_out) = block.carried_shl(rhs, carry_in);
+			carry_in = carry_out;
+			new_blocks.push(new_block);
+		}
+
+		Self::from_blocks_truncated(&new_blocks, len)
+	}
+}
+
+impl<B: Block> Add for BitString<B>
+{
+	type Output = BitString<B>;
+
+	/// Adds two bit strings together.
+	fn add(self, rhs: BitString<B>) -> Self::Output {
+		let len = self.len();
+		if len == 0 {
+			return self;
+		}
+
+		if len != rhs.len() {
+			panic!("bitstring length mismatch")
+		}
+
+		let mut new_blocks = Vec::new();
+		let mut carry_in = false;
+		let mut rhs_iter = rhs.into_blocks();
+		for partial_block in self.into_blocks() {
+			let left_block = partial_block.value;
+			let right_block = rhs_iter.next().unwrap().value;
+			let (new_block, carry_out) = left_block.carried_add(right_block, carry_in);
 			carry_in = carry_out;
 			new_blocks.push(new_block);
 		}
@@ -561,6 +591,44 @@ mod test {
 			}),
 			iter.next()
 		);
+		assert_eq!(None, iter.next());
+	}
+
+	#[test]
+	fn add_empty() {
+		let a = BitString::<u16>::new();
+		let b = BitString::new();
+		let c = a + b;
+		assert!(c.is_empty());
+	}
+
+	#[test]
+	#[should_panic]
+	fn add_mismatch_len() {
+		let a = BitString::<u64>::from_blocks(&[1]);
+		let b = BitString::<u64>::from_blocks_truncated(&[2], 62);
+		let _ = a + b;
+	}
+
+	#[test]
+	fn add_whole_blocks() {
+		let a = BitString::<u8>::from_blocks(&[0xf8, 0x07]);
+		let b = BitString::from_blocks(&[0x08, 0x00]);
+		let c = a + b;
+		let mut iter = c.blocks();
+		assert_eq!(Some(PartialBlock{ value: 0x00, len: 8 }), iter.next());
+		assert_eq!(Some(PartialBlock{ value: 0x08, len: 8 }), iter.next());
+		assert_eq!(None, iter.next());
+	}
+
+	#[test]
+	fn add_with_partial_block() {
+		let a = BitString::<u8>::from_blocks_truncated(&[0xf8, 0x07], 12);
+		let b = BitString::from_blocks_truncated(&[0x08, 0x00], 12);
+		let c = a + b;
+		let mut iter = c.blocks();
+		assert_eq!(Some(PartialBlock{ value: 0x00, len: 8 }), iter.next());
+		assert_eq!(Some(PartialBlock{ value: 0x08, len: 4 }), iter.next());
 		assert_eq!(None, iter.next());
 	}
 }
