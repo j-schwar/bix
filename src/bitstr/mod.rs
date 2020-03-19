@@ -272,7 +272,7 @@ mod test {
 	use super::*;
 
 	#[test]
-	fn bitstring_not_empty() {
+	fn not_empty() {
 		let a = BitString::<u32>::new();
 		assert!(a.is_empty());
 		let b = !a;
@@ -280,7 +280,7 @@ mod test {
 	}
 
 	#[test]
-	fn bitstring_not_whole_blocks() {
+	fn not_whole_blocks() {
 		let a = BitString::<u8>::from_blocks(&[0x01, 0xf2]);
 		let b = !a;
 
@@ -303,7 +303,7 @@ mod test {
 	}
 
 	#[test]
-	fn bitstring_not_with_partial_block() {
+	fn not_with_partial_block() {
 		let a = BitString::<u8>::from_blocks_truncated(&[0x01, 0x02], 10);
 		let b = !a;
 
@@ -328,7 +328,7 @@ mod test {
 	}
 
 	#[test]
-	fn bitstring_or_empty() {
+	fn or_empty() {
 		let a = BitString::<u16>::new();
 		let b = BitString::new();
 		let c = a | b;
@@ -337,14 +337,14 @@ mod test {
 
 	#[test]
 	#[should_panic(expected = "length mismatch")]
-	fn bitstring_or_mismatch_len() {
+	fn or_mismatch_len() {
 		let a = BitString::<u16>::from_blocks(&[0]);
 		let b = BitString::new();
 		let _ = a | b;
 	}
 
 	#[test]
-	fn bitstring_or_whole_blocks() {
+	fn or_whole_blocks() {
 		let a = BitString::<u8>::from_blocks(&[0xa0, 0xf2]);
 		let b = BitString::from_blocks(&[0x17, 0x70]);
 		let c = a | b;
@@ -367,7 +367,7 @@ mod test {
 	}
 
 	#[test]
-	fn bitstring_or_with_partial_block() {
+	fn or_with_partial_block() {
 		let a = BitString::<u8>::from_blocks_truncated(&[0xa0, 0xf2], 10);
 		let b = BitString::from_blocks_truncated(&[0x17, 0x70], 10);
 		let c = a | b;
@@ -390,7 +390,7 @@ mod test {
 	}
 
 	#[test]
-	fn bitstring_and_empty() {
+	fn and_empty() {
 		let a = BitString::<u16>::new();
 		let b = BitString::new();
 		let c = a & b;
@@ -399,14 +399,14 @@ mod test {
 
 	#[test]
 	#[should_panic(expected = "length mismatch")]
-	fn bitstring_and_mismatch_len() {
+	fn and_mismatch_len() {
 		let a = BitString::<u16>::from_blocks(&[0]);
 		let b = BitString::new();
 		let _ = a & b;
 	}
 
 	#[test]
-	fn bitstring_and_whole_blocks() {
+	fn and_whole_blocks() {
 		let a = BitString::<u8>::from_blocks(&[0xa0, 0xf2]);
 		let b = BitString::from_blocks(&[0x17, 0x70]);
 		let c = a & b;
@@ -429,7 +429,7 @@ mod test {
 	}
 
 	#[test]
-	fn bitstring_and_with_partial_block() {
+	fn and_with_partial_block() {
 		let a = BitString::<u8>::from_blocks_truncated(&[0xa0, 0xf2], 10);
 		let b = BitString::from_blocks_truncated(&[0x17, 0x70], 10);
 		let c = a & b;
@@ -452,7 +452,7 @@ mod test {
 	}
 
 	#[test]
-	fn bitstring_xor_empty() {
+	fn xor_empty() {
 		let a = BitString::<u16>::new();
 		let b = BitString::new();
 		let c = a ^ b;
@@ -461,14 +461,14 @@ mod test {
 
 	#[test]
 	#[should_panic(expected = "length mismatch")]
-	fn bitstring_xor_mismatch_len() {
+	fn xor_mismatch_len() {
 		let a = BitString::<u16>::from_blocks(&[0]);
 		let b = BitString::new();
 		let _ = a ^ b;
 	}
 
 	#[test]
-	fn bitstring_xor_whole_blocks() {
+	fn xor_whole_blocks() {
 		let a = BitString::<u8>::from_blocks(&[0xa0, 0xf2]);
 		let b = BitString::from_blocks(&[0x17, 0x70]);
 		let c = a ^ b;
@@ -491,7 +491,7 @@ mod test {
 	}
 
 	#[test]
-	fn bitstring_xor_with_partial_block() {
+	fn xor_with_partial_block() {
 		let a = BitString::<u8>::from_blocks_truncated(&[0xa0, 0xf2], 10);
 		let b = BitString::from_blocks_truncated(&[0x17, 0x70], 10);
 		let c = a ^ b;
@@ -506,6 +506,57 @@ mod test {
 		assert_eq!(
 			Some(PartialBlock {
 				value: 0x82,
+				len: 2
+			}),
+			iter.next()
+		);
+		assert_eq!(None, iter.next());
+	}
+
+	#[test]
+	fn shl_empty() {
+		let a = BitString::<u32>::new();
+		let b = a << 16;
+		assert!(b.is_empty());
+	}
+
+	#[test]
+	fn shl_whole_blocks() {
+		let a = BitString::<u8>::from_blocks(&[0x81, 0xc0]);
+		let b = a << 2;
+		let mut iter = b.blocks();
+		assert_eq!(
+			Some(PartialBlock {
+				value: 0x04,
+				len: 8
+			}),
+			iter.next()
+		);
+		assert_eq!(
+			Some(PartialBlock {
+				value: 0x02,
+				len: 8
+			}),
+			iter.next()
+		);
+		assert_eq!(None, iter.next());
+	}
+
+	#[test]
+	fn shl_with_partial_block() {
+		let a = BitString::<u8>::from_blocks_truncated(&[0x81, 0xc0], 10);
+		let b = a << 2;
+		let mut iter = b.blocks();
+		assert_eq!(
+			Some(PartialBlock {
+				value: 0x04,
+				len: 8
+			}),
+			iter.next()
+		);
+		assert_eq!(
+			Some(PartialBlock {
+				value: 0x02,
 				len: 2
 			}),
 			iter.next()
