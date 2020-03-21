@@ -1,119 +1,167 @@
-//! Defines and implements `Block` and associated traits for integers and SIMD
-//! types which may be used as the base for bit strings.
-
-use std::convert::TryInto;
-use std::ops::*;
+//! Defines the `Block` trait and implements if the for fundament unsigned
+//! integer types as well as `__m128` and `__m256` data types for SSE and AVX
+//! architectures respectively.
+//! 
+//! Blocks are the fundamental building blocks of [`BitString`]s.
+//! 
+//! [`BitString`]: ../struct.BitString/html
 
 /// The `Block` trait unifies al of the required operations needed for bit
 /// string operations.
-pub trait Block:
-	Sized
-	+ Clone
-	+ Copy
-	+ Default
-	+ PartialEq
-	+ Eq
-	+ Not
-	+ BitAnd
-	+ BitAndAssign
-	+ BitOr
-	+ BitOrAssign
-	+ BitXor
-	+ BitXorAssign
-	+ CarriedAdd
-	+ CarriedAddAssign
-	+ CarriedShl
-	+ CarriedShlAssign
-	+ CarriedShr
-	+ CarriedShrAssign
-	+ FromLittleEndianByteSlice
-{
+pub trait Block: Sized + Clone + Copy {
 	/// Size of this block in bits.
 	const BLOCK_SIZE: usize = std::mem::size_of::<Self>() * 8;
-}
 
-impl<B> Block for B where
-	B: Sized
-		+ Clone
-		+ Copy
-		+ Default
-		+ PartialEq
-		+ Eq
-		+ Not
-		+ BitAnd
-		+ BitAndAssign
-		+ BitOr
-		+ BitOrAssign
-		+ BitXor
-		+ BitXorAssign
-		+ CarriedAdd
-		+ CarriedAddAssign
-		+ CarriedShl
-		+ CarriedShlAssign
-		+ CarriedShr
-		+ CarriedShrAssign
-		+ FromLittleEndianByteSlice
-{
-}
+	/// Zero value for this block (i.e., a value with all bits set to 0).
+	fn zero() -> Self;
 
-/// Addition with carry in/out.
-///
-/// # Semantics
-///
-/// Adds the sum of `rhs` and `carry_in` to `self` returning the result along
-/// with the carry out (overflow) bit.
-pub trait CarriedAdd: Sized {
+	/// Returns a new block with the bottom `n` bits set to 1 and all other bits
+	/// set to 0.
+	/// 
+	/// # Panics
+	/// 
+	/// This function panics if `n` > `Self::BLOCK_SIZE`.
+	/// 
+	/// # Examples
+	/// 
+	/// For example, consider the `u8` block implementation:
+	/// 
+	/// ```
+	/// # use bix::bitstr::block::Block;
+	/// assert_eq!(0b00000000, u8::mask(0));
+	/// assert_eq!(0b00000001, u8::mask(1));
+	/// assert_eq!(0b00000011, u8::mask(2));
+	/// // ...
+	/// assert_eq!(0b01111111, u8::mask(7));
+	/// assert_eq!(0b11111111, u8::mask(8));
+	/// // u8::mask(9) -- panics
+	/// ```
+	#[inline]
+	fn mask(n: usize) -> Self {
+		if n > Self::BLOCK_SIZE {
+			panic!("mask size must be <= the block size");
+		}
+
+		Self::zero().not().shr(Self::BLOCK_SIZE - n)
+	}
+
+	/// Bitwise not.
+	fn not(self) -> Self;
+
+	/// Bitwise or.
+	fn bitor(self, rhs: Self) -> Self;
+
+	/// Bitwise and.
+	fn bitand(self, rhs: Self) -> Self;
+
+	/// Bitwise xor.
+	fn bitxor(self, rhs: Self) -> Self;
+
+	/// Addition with carry in/out.
+	///
+	/// Computes the following returning the result along with the carry out bit:
+	///
+	/// ```text
+	/// self + rhs + (carry_in ? 1 : 0)
+	/// ```
+	///
+	/// The carry out bit should be `true` if the unsigned addition overflowed
+	/// and `false` otherwise.
 	fn carried_add(self, rhs: Self, carry_in: bool) -> (Self, bool);
+
+	/// Logical left shift with carry in/out.
+	///
+	/// Computes the following:
+	///
+	/// ```text
+	/// let carry_out = self >> (Self::BLOCK_SIZE - shift);
+	/// let result = (self << shift) | carry_in;
+	/// (result, carry_out)
+	/// ```
+	///
+	/// # Panics
+	///
+	/// This method panics if `shift` is > `Self::BLOCK_SIZE`.
+	fn carried_shl(self, shift: usize, carry_in: Self) -> (Self, Self);
+
+	/// Logical left shift.
+	#[inline]
+	fn shl(self, shift: usize) -> Self {
+		let (result, _) = self.carried_shl(shift, Self::zero());
+		result
+	}
+
+	/// Logical right shift with carry in/out.
+	///
+	/// Computes the following:
+	///
+	/// ```text
+	/// let carry_out = self << (Self::BLOCK_SIZE - shift);
+	/// let result = (self >> shift) | carry_in;
+	/// (result, carry_out)
+	/// ```
+	///
+	/// # Panics
+	///
+	/// This method panics if `shift` is > `Self::BLOCK_SIZE`.
+	fn carried_shr(self, shift: usize, carry_in: Self) -> (Self, Self);
+
+	/// Logical right shift.
+	#[inline]
+	fn shr(self, shift: usize) -> Self {
+		let (result, _) = self.carried_shr(shift, Self::zero());
+		result
+	}
+
+	/// Equality comparison operator.
+	fn eq(&self, rhs: &Self) -> bool;
+
+	/// Returns the value of the `i`th bit.
+	///
+	/// # Panics
+	///
+	/// This method should panic if `i` is >= to the block size of `Self`.
+	fn get_bit(&self, i: usize) -> bool;
 }
 
-macro_rules! impl_carried_add {
-	( $( $x:ty ),* ) => {
+macro_rules! impl_block {
+	( $( $t:ty ),* ) => {
 		$(
-			impl CarriedAdd for $x {
+			impl Block for $t {
+				#[inline]
+				fn zero() -> Self {
+					0
+				}
+
+				#[inline]
+				fn not(self) -> Self {
+					!self
+				}
+
+				#[inline]
+				fn bitor(self, rhs: Self) -> Self {
+					self | rhs
+				}
+
+				#[inline]
+				fn bitand(self, rhs: Self) -> Self {
+					self & rhs
+				}
+
+				#[inline]
+				fn bitxor(self, rhs: Self) -> Self {
+					self ^ rhs
+				}
+
 				#[inline]
 				fn carried_add(self, rhs: Self, carry_in: bool) -> (Self, bool) {
 					let c = if carry_in { 1 } else { 0 };
 					self.overflowing_add(rhs + c)
 				}
-			}
-		)*
-	};
-}
 
-impl_carried_add!(u8, u16, u32, u64);
-
-/// An assignment variant of [`CarriedAdd`].
-///
-/// [`CarriedAdd`]: ./trait.CarriedAdd.html
-pub trait CarriedAddAssign: Sized {
-	fn carried_add_assign(&mut self, rhs: Self, carry_in: bool) -> bool;
-}
-
-impl<I> CarriedAddAssign for I
-where
-	I: CarriedAdd + Copy,
-{
-	#[inline]
-	fn carried_add_assign(&mut self, rhs: Self, carry_in: bool) -> bool {
-		let (x, carry_out) = self.carried_add(rhs, carry_in);
-		*self = x;
-		return carry_out;
-	}
-}
-
-/// Left shift with carry in/out.
-pub trait CarriedShl: Sized {
-	fn carried_shl(self, shift: usize, carry_in: Self) -> (Self, Self);
-}
-
-macro_rules! impl_carried_shl {
-	( $( $x:ty ),* ) => {
-		$(
-			impl CarriedShl for $x {
-				#[inline]
 				fn carried_shl(self, shift: usize, carry_in: Self) -> (Self, Self) {
 					if shift > Self::BLOCK_SIZE {
-						panic!("shift too large: only shifts of less than block size are supported");
+						panic!("shifts larger than the block size are illegal");
 					}
 
 					if shift == 0 {
@@ -128,45 +176,10 @@ macro_rules! impl_carried_shl {
 					let result = (self << shift) | carry_in;
 					return (result, carry_out);
 				}
-			}
-		)*
-	};
-}
 
-impl_carried_shl!(u8, u16, u32, u64);
-
-/// An assignment variant of [`CarriedShl`].
-///
-/// [`CarriedShl`]: ./trait.CarriedShl.html
-pub trait CarriedShlAssign: Sized {
-	fn carried_shl_assign(&mut self, shift: usize, carry_in: Self) -> Self;
-}
-
-impl<I> CarriedShlAssign for I
-where
-	I: CarriedShl + Copy,
-{
-	#[inline]
-	fn carried_shl_assign(&mut self, shift: usize, carry_in: Self) -> Self {
-		let (result, carry_out) = self.carried_shl(shift, carry_in);
-		*self = result;
-		return carry_out;
-	}
-}
-
-/// Right shift with carry in/out.
-pub trait CarriedShr: Sized {
-	fn carried_shr(self, shift: usize, carry_in: Self) -> (Self, Self);
-}
-
-macro_rules! impl_carried_shr {
-	( $( $x:ty ),* ) => {
-		$(
-			impl CarriedShr for $x {
-				#[inline]
 				fn carried_shr(self, shift: usize, carry_in: Self) -> (Self, Self) {
 					if shift > Self::BLOCK_SIZE {
-						panic!("shift too large: only shifts of less than block size are supported");
+						panic!("shifts larger than the block size are illegal");
 					}
 
 					if shift == 0 {
@@ -181,70 +194,26 @@ macro_rules! impl_carried_shr {
 					let result = (self >> shift) | carry_in;
 					return (result, carry_out);
 				}
+
+				#[inline]
+				fn eq(&self, rhs: &Self) -> bool {
+					self == rhs
+				}
+
+				#[inline]
+				fn get_bit(&self, i: usize) -> bool {
+					if i >= Self::BLOCK_SIZE {
+						panic!("index out of bounds")
+					}
+
+					((self >> i) & 1) != 0
+				}
 			}
 		)*
 	};
 }
 
-impl_carried_shr!(u8, u16, u32, u64);
-
-/// An assignment variant of [`CarriedShr`].
-///
-/// [`CarriedShr`]: ./trait.CarriedShl.html
-pub trait CarriedShrAssign: Sized {
-	fn carried_shr_assign(&mut self, shift: usize, carry_in: Self) -> Self;
-}
-
-impl<I> CarriedShrAssign for I
-where
-	I: CarriedShr + Copy,
-{
-	#[inline]
-	fn carried_shr_assign(&mut self, shift: usize, carry_in: Self) -> Self {
-		let (result, carry_out) = self.carried_shr(shift, carry_in);
-		*self = result;
-		return carry_out;
-	}
-}
-
-/// Constructs an object from a sequence of bytes interpreting them as a little
-/// endian encoded version of this type.
-pub trait FromLittleEndianByteSlice {
-	/// Constructs an instance of this type from a slice of bytes.
-	///
-	/// For rust's built in types, this function maps to the type's corresponding
-	/// `from_le_bytes` function.
-	///
-	/// # Panics
-	///
-	/// Implementations may panic if `slice` does not contain the exact amount of
-	/// bytes required to construct this type.
-	fn from_le_byte_slice(slice: &[u8]) -> Self;
-}
-
-impl FromLittleEndianByteSlice for u8 {
-	fn from_le_byte_slice(slice: &[u8]) -> Self {
-		if slice.len() != 1 {
-			panic!("incorrect number of bytes");
-		}
-
-		slice[0]
-	}
-}
-
-macro_rules! impl_from_le_byte_slice {
-	( $( ($t:ty, $n:tt) ),* ) => {
-		$(
-			impl FromLittleEndianByteSlice for $t {
-				fn from_le_byte_slice(slice: &[u8]) -> Self {
-					Self::from_le_bytes(slice[0..$n].try_into().expect("incorrect number of bytes"))
-				}
-			}
-		)*
-	}
-}
-
-impl_from_le_byte_slice![(u16, 2), (u32, 4), (u64, 8)];
+impl_block!(u8, u16, u32, u64);
 
 /// Returns the required number of blocks needed to store `n` bits.
 ///
@@ -276,17 +245,6 @@ mod test {
 			assert_eq!(254u8.carried_add(1, true), (0, true));
 			assert_eq!(253u8.carried_add(1, true), (255u8, false));
 			assert_eq!(0u8.carried_add(0, false), (0u8, false));
-		}
-
-		#[test]
-		fn carried_add_assign() {
-			let mut x = 254u8;
-			let carry_out = x.carried_add_assign(1, true);
-			assert_eq!((x, carry_out), (0, true));
-
-			let mut y = 64u8;
-			let carry_out = y.carried_add_assign(4, false);
-			assert_eq!((y, carry_out), (68, false));
 		}
 
 		#[test]

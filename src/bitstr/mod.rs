@@ -159,10 +159,7 @@ impl<B: Block> FromIterator<PartialBlock<B>> for BitString<B> {
 	}
 }
 
-impl<B: Block> Not for BitString<B>
-where
-	B: From<<B as Not>::Output>,
-{
+impl<B: Block> Not for BitString<B> {
 	type Output = BitString<B>;
 
 	/// Performs a bitwise not on the bitstring flipping all of its bits.
@@ -183,16 +180,15 @@ where
 	/// assert_eq!(None, iter.next());
 	/// ```
 	fn not(self) -> Self::Output {
-		self.into_blocks().map(|p| p.map(|v| B::from(!v))).collect()
+		self.into_blocks()
+			.map(|p| p.map(|v| B::from(v.not())))
+			.collect()
 	}
 }
 
 macro_rules! impl_binary_op {
-	($trait_name:ident, $fn_name:tt, $op:tt) => {
-		impl <B: Block> $trait_name for BitString<B>
-		where
-			B: From<<B as $trait_name>::Output>,
-		{
+	($trait_name:ident, $fn_name:tt) => {
+		impl<B: Block> $trait_name for BitString<B> {
 			type Output = BitString<B>;
 
 			fn $fn_name(self, rhs: Self) -> Self::Output {
@@ -210,7 +206,7 @@ macro_rules! impl_binary_op {
 				for partial_left_block in left_iter {
 					let left_block = partial_left_block.value;
 					let right_block = right_iter.next().unwrap().value;
-					let new_block = B::from(left_block $op right_block);
+					let new_block = B::from(left_block.$fn_name(right_block));
 					new_blocks.push(new_block);
 				}
 
@@ -220,9 +216,9 @@ macro_rules! impl_binary_op {
 	};
 }
 
-impl_binary_op!(BitOr, bitor, |);
-impl_binary_op!(BitAnd, bitand, &);
-impl_binary_op!(BitXor, bitxor, ^);
+impl_binary_op!(BitOr, bitor);
+impl_binary_op!(BitAnd, bitand);
+impl_binary_op!(BitXor, bitxor);
 
 impl<B: Block> Shl<usize> for BitString<B> {
 	type Output = BitString<B>;
@@ -255,7 +251,7 @@ impl<B: Block> Shl<usize> for BitString<B> {
 		}
 
 		let mut new_blocks = Vec::new();
-		let mut carry_in = Default::default();
+		let mut carry_in = B::zero();
 		for partial_block in self.into_blocks() {
 			let block = partial_block.value;
 			let (new_block, carry_out) = block.carried_shl(rhs, carry_in);
@@ -267,8 +263,7 @@ impl<B: Block> Shl<usize> for BitString<B> {
 	}
 }
 
-impl<B: Block> Add for BitString<B>
-{
+impl<B: Block> Add for BitString<B> {
 	type Output = BitString<B>;
 
 	/// Adds two bit strings together.
@@ -616,8 +611,20 @@ mod test {
 		let b = BitString::from_blocks(&[0x08, 0x00]);
 		let c = a + b;
 		let mut iter = c.blocks();
-		assert_eq!(Some(PartialBlock{ value: 0x00, len: 8 }), iter.next());
-		assert_eq!(Some(PartialBlock{ value: 0x08, len: 8 }), iter.next());
+		assert_eq!(
+			Some(PartialBlock {
+				value: 0x00,
+				len: 8
+			}),
+			iter.next()
+		);
+		assert_eq!(
+			Some(PartialBlock {
+				value: 0x08,
+				len: 8
+			}),
+			iter.next()
+		);
 		assert_eq!(None, iter.next());
 	}
 
@@ -627,8 +634,20 @@ mod test {
 		let b = BitString::from_blocks_truncated(&[0x08, 0x00], 12);
 		let c = a + b;
 		let mut iter = c.blocks();
-		assert_eq!(Some(PartialBlock{ value: 0x00, len: 8 }), iter.next());
-		assert_eq!(Some(PartialBlock{ value: 0x08, len: 4 }), iter.next());
+		assert_eq!(
+			Some(PartialBlock {
+				value: 0x00,
+				len: 8
+			}),
+			iter.next()
+		);
+		assert_eq!(
+			Some(PartialBlock {
+				value: 0x08,
+				len: 4
+			}),
+			iter.next()
+		);
 		assert_eq!(None, iter.next());
 	}
 }
