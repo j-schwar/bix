@@ -1,14 +1,14 @@
 //! Defines the `Block` trait and implements if the for fundament unsigned
 //! integer types as well as `__m128` and `__m256` data types for SSE and AVX
 //! architectures respectively.
-//! 
+//!
 //! Blocks are the fundamental building blocks of [`BitString`]s.
-//! 
+//!
 //! [`BitString`]: ../struct.BitString/html
 
 /// The `Block` trait unifies al of the required operations needed for bit
 /// string operations.
-pub trait Block: Sized + Clone + Copy {
+pub trait Block: Sized + Clone + Copy + PartialEq + Eq {
 	/// Size of this block in bits.
 	const BLOCK_SIZE: usize = std::mem::size_of::<Self>() * 8;
 
@@ -17,15 +17,15 @@ pub trait Block: Sized + Clone + Copy {
 
 	/// Returns a new block with the bottom `n` bits set to 1 and all other bits
 	/// set to 0.
-	/// 
+	///
 	/// # Panics
-	/// 
+	///
 	/// This function panics if `n` > `Self::BLOCK_SIZE`.
-	/// 
+	///
 	/// # Examples
-	/// 
+	///
 	/// For example, consider the `u8` block implementation:
-	/// 
+	///
 	/// ```
 	/// # use bix::bitstr::block::Block;
 	/// assert_eq!(0b00000000, u8::mask(0));
@@ -113,9 +113,6 @@ pub trait Block: Sized + Clone + Copy {
 		result
 	}
 
-	/// Equality comparison operator.
-	fn eq(&self, rhs: &Self) -> bool;
-
 	/// Returns the value of the `i`th bit.
 	///
 	/// # Panics
@@ -196,11 +193,6 @@ macro_rules! impl_block {
 				}
 
 				#[inline]
-				fn eq(&self, rhs: &Self) -> bool {
-					self == rhs
-				}
-
-				#[inline]
 				fn get_bit(&self, i: usize) -> bool {
 					if i >= Self::BLOCK_SIZE {
 						panic!("index out of bounds")
@@ -214,6 +206,90 @@ macro_rules! impl_block {
 }
 
 impl_block!(u8, u16, u32, u64);
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+#[derive(Copy, Clone, Debug)]
+pub struct U256(core::arch::x86_64::__m256i);
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+impl PartialEq for U256 {
+	#[inline]
+	fn eq(&self, rhs: &Self) -> bool {
+		use core::arch::x86_64::*;
+		unsafe {
+			let packed_cmp = U256(_mm256_cmpeq_epi64(self.0, rhs.0));
+			let ones = Self::zero().not();
+			_mm256_testc_si256(packed_cmp.0, ones.0) == 1
+		}
+	}
+}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+impl Eq for U256 {}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+impl Block for U256 {
+	#[inline]
+	fn zero() -> Self {
+		use core::arch::x86_64::*;
+		unsafe {
+			U256(_mm256_setzero_si256())
+		}
+	}
+
+	#[inline]
+	fn not(self) -> Self {
+		use core::arch::x86_64::*;
+		unsafe {
+			let ones = _mm256_set1_epi8(-1);
+			U256(_mm256_xor_si256(self.0, ones))
+		}
+	}
+
+	#[inline]
+	fn bitor(self, rhs: Self) -> Self {
+		use core::arch::x86_64::*;
+		unsafe {
+			U256(_mm256_or_si256(self.0, rhs.0))
+		}
+	}
+
+	#[inline]
+	fn bitand(self, rhs: Self) -> Self {
+		use core::arch::x86_64::*;
+		unsafe {
+			U256(_mm256_and_si256(self.0, rhs.0))
+		}
+	}
+
+	#[inline]
+	fn bitxor(self, rhs: Self) -> Self {
+		use core::arch::x86_64::*;
+		unsafe {
+			U256(_mm256_xor_si256(self.0, rhs.0))
+		}
+	}
+
+	fn carried_add(self, rhs: Self, carry_in: bool) -> (Self, bool) {
+		use core::arch::x86_64::*;
+		unsafe {
+			let parts_sum = _mm256_add_epi64(self.0, rhs.0);
+			return (U256(parts_sum), carry_in);
+		}
+	}
+
+	fn carried_shl(self, _rhs: usize, _carry_in: Self) -> (Self, Self) {
+		unimplemented!();
+	}
+
+	fn carried_shr(self, _rhs: usize, _carry_in: Self) -> (Self, Self) {
+		unimplemented!();
+	}
+
+	fn get_bit(&self, _i: usize) -> bool {
+		unimplemented!();
+	}
+}
 
 /// Returns the required number of blocks needed to store `n` bits.
 ///
@@ -265,6 +341,65 @@ mod test {
 		#[test]
 		fn carried_shl_full_block_shift() {
 			assert_eq!(0x12u8.carried_shl(8, 0xff), (0xff, 0x12));
+		}
+	}
+
+	#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+	mod u256 {
+		use super::*;
+
+		/// Constructs a `U256` from 64-bit parts.
+		/// 
+		/// As per Intel's documentation, the bit layout of the resultant `U256` is:
+		/// 
+		/// ```text
+		/// dst[63:0] := d
+		/// dst[127:64] := c
+		/// dst[191:128] := b
+		/// dst[255:192] := a
+		/// dst[MAX:256] := 0
+		/// ```
+		fn u256_from_parts(a: i64, b: i64, c: i64, d: i64) -> U256 {
+			use core::arch::x86_64::*;
+			unsafe {
+				U256(_mm256_set_epi64x(a, b, c, d))
+			}
+		}
+
+		#[test]
+		fn zero_equals_zero() {
+			let a = U256::zero();
+			let b = U256::zero();
+			assert!(a.eq(&b));
+		}
+
+		#[test]
+		fn zero_not_equal_all_ones() {
+			let a = U256::zero();
+			let b = U256::zero().not();
+			assert!(!a.eq(&b));
+		}
+
+		#[test]
+		fn equal() {
+			let a = u256_from_parts(531356, 134, -01135, 351643);
+			let b = a;
+			assert_eq!(a, b);
+		}
+
+		#[test]
+		fn not_equal() {
+			let a = u256_from_parts(531356, 134, -01135, 351643);
+			let b = u256_from_parts(531356, 135, -01135, 351643);
+			assert!(!a.eq(&b));
+		}
+
+		#[test]
+		fn carried_add_no_carry_in() {
+			let a = u256_from_parts(0, -1, -1, -1);
+			let b = u256_from_parts(0, 0, 0, 1);
+			let expected = u256_from_parts(1, 0, 0, 0);
+			assert_eq!(a.carried_add(b, false), (expected, false));
 		}
 	}
 }
