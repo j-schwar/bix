@@ -232,9 +232,7 @@ impl Block for U256 {
 	#[inline]
 	fn zero() -> Self {
 		use core::arch::x86_64::*;
-		unsafe {
-			U256(_mm256_setzero_si256())
-		}
+		unsafe { U256(_mm256_setzero_si256()) }
 	}
 
 	#[inline]
@@ -249,25 +247,19 @@ impl Block for U256 {
 	#[inline]
 	fn bitor(self, rhs: Self) -> Self {
 		use core::arch::x86_64::*;
-		unsafe {
-			U256(_mm256_or_si256(self.0, rhs.0))
-		}
+		unsafe { U256(_mm256_or_si256(self.0, rhs.0)) }
 	}
 
 	#[inline]
 	fn bitand(self, rhs: Self) -> Self {
 		use core::arch::x86_64::*;
-		unsafe {
-			U256(_mm256_and_si256(self.0, rhs.0))
-		}
+		unsafe { U256(_mm256_and_si256(self.0, rhs.0)) }
 	}
 
 	#[inline]
 	fn bitxor(self, rhs: Self) -> Self {
 		use core::arch::x86_64::*;
-		unsafe {
-			U256(_mm256_xor_si256(self.0, rhs.0))
-		}
+		unsafe { U256(_mm256_xor_si256(self.0, rhs.0)) }
 	}
 
 	fn carried_add(self, rhs: Self, carry_in: bool) -> (Self, bool) {
@@ -349,9 +341,9 @@ mod test {
 		use super::*;
 
 		/// Constructs a `U256` from 64-bit parts.
-		/// 
+		///
 		/// As per Intel's documentation, the bit layout of the resultant `U256` is:
-		/// 
+		///
 		/// ```text
 		/// dst[63:0] := d
 		/// dst[127:64] := c
@@ -361,9 +353,7 @@ mod test {
 		/// ```
 		fn u256_from_parts(a: i64, b: i64, c: i64, d: i64) -> U256 {
 			use core::arch::x86_64::*;
-			unsafe {
-				U256(_mm256_set_epi64x(a, b, c, d))
-			}
+			unsafe { U256(_mm256_set_epi64x(a, b, c, d)) }
 		}
 
 		#[test]

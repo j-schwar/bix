@@ -2,8 +2,8 @@
 
 extern crate test;
 
-use bix::BitString;
 use bix::bitstr::block::Block;
+use bix::BitString;
 use test::Bencher;
 
 /// The size of bit string to use for benchmarking in bytes.
@@ -12,7 +12,9 @@ const BENCH_BYTE_COUNT: usize = 1048576;
 macro_rules! bench_or {
 	( $block:ty, $bencher:ident ) => {
 		let block_count = BENCH_BYTE_COUNT / std::mem::size_of::<$block>();
-		let blocks: Vec<$block> = std::iter::repeat(<$block>::zero()).take(block_count).collect();
+		let blocks: Vec<$block> = std::iter::repeat(<$block>::zero())
+			.take(block_count)
+			.collect();
 		// We can't just benchmark the `|` operation because it doesn't work on
 		// references, so instead we have to benchmark the construction as well.
 		$bencher.iter(|| {

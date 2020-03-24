@@ -292,9 +292,66 @@ impl<B: Block> Add for BitString<B> {
 	}
 }
 
+impl<B: Block> PartialEq for BitString<B> {
+	fn eq(&self, other: &Self) -> bool {
+		if self.len() != other.len() {
+			return false;
+		}
+
+		let mut other_iter = other.blocks();
+		for PartialBlock {
+			value: l_block,
+			len: block_len,
+		} in self.blocks()
+		{
+			let r_block = other_iter.next().unwrap().value;
+
+			// Mask off bits which don't contain valid data.
+			let mask = B::mask(block_len);
+			let l_block = l_block.bitand(mask);
+			let r_block = r_block.bitand(mask);
+			if l_block != r_block {
+				return false;
+			}
+		}
+
+		return true;
+	}
+}
+
+impl<B: Block> Eq for BitString<B> {}
+
 #[cfg(test)]
 mod test {
 	use super::*;
+
+	#[test]
+	fn equal() {
+		let a = BitString::<u64>::from_blocks_truncated(&[1, 2, 3, 4], 201);
+		let b = BitString::from_blocks_truncated(&[1, 2, 3, 4], 201);
+		assert_eq!(a, b);
+	}
+
+	#[test]
+	fn equal_up_to_len() {
+		let a = BitString::<u8>::from_blocks_truncated(&[0xff, 0xff], 12);
+		let b = BitString::from_blocks_truncated(&[0xff, 0x0f], 12);
+		assert_eq!(a, b);
+	}
+
+	#[test]
+	fn not_equal() {
+		let a = BitString::<u64>::from_blocks_truncated(&[1, 2, 3, 400], 201);
+		let b = BitString::from_blocks_truncated(&[1, 2, 3, 4], 201);
+		assert_ne!(a, b);
+	}
+
+	#[test]
+	fn mismatch_len_not_equal() {
+		let a = BitString::<u64>::from_blocks_truncated(&[1, 2, 3, 4], 201);
+		let b = BitString::from_blocks_truncated(&[1, 2, 3, 4], 200);
+		assert_ne!(a, b);
+	}
 
 	#[test]
 	fn not_empty() {
