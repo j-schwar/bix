@@ -364,49 +364,13 @@ mod test {
 	#[test]
 	fn not_whole_blocks() {
 		let a = BitString::<u8>::from_blocks(&[0x01, 0xf2]);
-		let b = !a;
-
-		let mut iter = b.blocks();
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0xfe,
-				len: 8
-			}),
-			iter.next()
-		);
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0x0d,
-				len: 8
-			}),
-			iter.next()
-		);
-		assert_eq!(None, iter.next());
+		assert_eq!(BitString::from_blocks(&[0xfe, 0x0d]), !a);
 	}
 
 	#[test]
 	fn not_with_partial_block() {
 		let a = BitString::<u8>::from_blocks_truncated(&[0x01, 0x02], 10);
-		let b = !a;
-
-		let mut iter = b.blocks();
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0xfe,
-				len: 8
-			}),
-			iter.next()
-		);
-
-		// Note that only the last 2 bits of this block are valid.
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0xfd,
-				len: 2
-			}),
-			iter.next()
-		);
-		assert_eq!(None, iter.next());
+		assert_eq!(BitString::from_blocks_truncated(&[0xfe, 0x01], 10), !a);
 	}
 
 	#[test]
@@ -429,46 +393,14 @@ mod test {
 	fn or_whole_blocks() {
 		let a = BitString::<u8>::from_blocks(&[0xa0, 0xf2]);
 		let b = BitString::from_blocks(&[0x17, 0x70]);
-		let c = a | b;
-		let mut iter = c.blocks();
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0xb7,
-				len: 8
-			}),
-			iter.next()
-		);
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0xf2,
-				len: 8
-			}),
-			iter.next()
-		);
-		assert_eq!(None, iter.next());
+		assert_eq!(BitString::from_blocks(&[0xb7, 0xf2]), a | b);
 	}
 
 	#[test]
 	fn or_with_partial_block() {
 		let a = BitString::<u8>::from_blocks_truncated(&[0xa0, 0xf2], 10);
 		let b = BitString::from_blocks_truncated(&[0x17, 0x70], 10);
-		let c = a | b;
-		let mut iter = c.blocks();
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0xb7,
-				len: 8
-			}),
-			iter.next()
-		);
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0xf2,
-				len: 2
-			}),
-			iter.next()
-		);
-		assert_eq!(None, iter.next());
+		assert_eq!(BitString::from_blocks_truncated(&[0xb7, 0x02], 10), a | b);
 	}
 
 	#[test]
@@ -491,46 +423,14 @@ mod test {
 	fn and_whole_blocks() {
 		let a = BitString::<u8>::from_blocks(&[0xa0, 0xf2]);
 		let b = BitString::from_blocks(&[0x17, 0x70]);
-		let c = a & b;
-		let mut iter = c.blocks();
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0x00,
-				len: 8
-			}),
-			iter.next()
-		);
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0x70,
-				len: 8
-			}),
-			iter.next()
-		);
-		assert_eq!(None, iter.next());
+		assert_eq!(BitString::from_blocks(&[0x00, 0x70]), a & b);
 	}
 
 	#[test]
 	fn and_with_partial_block() {
-		let a = BitString::<u8>::from_blocks_truncated(&[0xa0, 0xf2], 10);
-		let b = BitString::from_blocks_truncated(&[0x17, 0x70], 10);
-		let c = a & b;
-		let mut iter = c.blocks();
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0x00,
-				len: 8
-			}),
-			iter.next()
-		);
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0x70,
-				len: 2
-			}),
-			iter.next()
-		);
-		assert_eq!(None, iter.next());
+		let a = BitString::<u8>::from_blocks_truncated(&[0xa0, 0x02], 10);
+		let b = BitString::from_blocks_truncated(&[0x17, 0x03], 10);
+		assert_eq!(BitString::from_blocks_truncated(&[0x00, 0x02], 10), a & b);
 	}
 
 	#[test]
@@ -553,46 +453,14 @@ mod test {
 	fn xor_whole_blocks() {
 		let a = BitString::<u8>::from_blocks(&[0xa0, 0xf2]);
 		let b = BitString::from_blocks(&[0x17, 0x70]);
-		let c = a ^ b;
-		let mut iter = c.blocks();
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0xb7,
-				len: 8
-			}),
-			iter.next()
-		);
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0x82,
-				len: 8
-			}),
-			iter.next()
-		);
-		assert_eq!(None, iter.next());
+		assert_eq!(BitString::from_blocks(&[0xb7, 0x82]), a ^ b);
 	}
 
 	#[test]
 	fn xor_with_partial_block() {
 		let a = BitString::<u8>::from_blocks_truncated(&[0xa0, 0xf2], 10);
 		let b = BitString::from_blocks_truncated(&[0x17, 0x70], 10);
-		let c = a ^ b;
-		let mut iter = c.blocks();
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0xb7,
-				len: 8
-			}),
-			iter.next()
-		);
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0x82,
-				len: 2
-			}),
-			iter.next()
-		);
-		assert_eq!(None, iter.next());
+		assert_eq!(BitString::from_blocks_truncated(&[0xb7, 0x02], 10), a ^ b);
 	}
 
 	#[test]
@@ -605,45 +473,13 @@ mod test {
 	#[test]
 	fn shl_whole_blocks() {
 		let a = BitString::<u8>::from_blocks(&[0x81, 0xc0]);
-		let b = a << 2;
-		let mut iter = b.blocks();
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0x04,
-				len: 8
-			}),
-			iter.next()
-		);
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0x02,
-				len: 8
-			}),
-			iter.next()
-		);
-		assert_eq!(None, iter.next());
+		assert_eq!(BitString::from_blocks(&[0x04, 0x02]), a << 2);
 	}
 
 	#[test]
 	fn shl_with_partial_block() {
 		let a = BitString::<u8>::from_blocks_truncated(&[0x81, 0xc0], 10);
-		let b = a << 2;
-		let mut iter = b.blocks();
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0x04,
-				len: 8
-			}),
-			iter.next()
-		);
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0x02,
-				len: 2
-			}),
-			iter.next()
-		);
-		assert_eq!(None, iter.next());
+		assert_eq!(BitString::from_blocks_truncated(&[0x04, 0x02], 10), a << 2);
 	}
 
 	#[test]
@@ -666,45 +502,13 @@ mod test {
 	fn add_whole_blocks() {
 		let a = BitString::<u8>::from_blocks(&[0xf8, 0x07]);
 		let b = BitString::from_blocks(&[0x08, 0x00]);
-		let c = a + b;
-		let mut iter = c.blocks();
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0x00,
-				len: 8
-			}),
-			iter.next()
-		);
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0x08,
-				len: 8
-			}),
-			iter.next()
-		);
-		assert_eq!(None, iter.next());
+		assert_eq!(BitString::from_blocks(&[0x00, 0x08]), a + b);
 	}
 
 	#[test]
 	fn add_with_partial_block() {
 		let a = BitString::<u8>::from_blocks_truncated(&[0xf8, 0x07], 12);
 		let b = BitString::from_blocks_truncated(&[0x08, 0x00], 12);
-		let c = a + b;
-		let mut iter = c.blocks();
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0x00,
-				len: 8
-			}),
-			iter.next()
-		);
-		assert_eq!(
-			Some(PartialBlock {
-				value: 0x08,
-				len: 4
-			}),
-			iter.next()
-		);
-		assert_eq!(None, iter.next());
+		assert_eq!(BitString::from_blocks_truncated(&[0x00, 0x08], 12), a + b);
 	}
 }
