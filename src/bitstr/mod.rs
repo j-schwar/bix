@@ -9,6 +9,7 @@ use std::iter::FromIterator;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Shl};
 
 pub use iter::PartialBlock;
+use block::FromSlice;
 
 #[derive(Clone, Debug)]
 pub struct BitString<B: Block> {
@@ -37,7 +38,7 @@ impl<B: Block> BitString<B> {
 	///
 	/// If `n` is 0, nothing will be allocated.
 	pub fn with_capacity(n: usize) -> Self {
-		let cap = block::required_blocks::<B>(n);
+		let cap = required_blocks::<B>(n);
 		BitString {
 			vec: Vec::with_capacity(cap),
 			bit_len: 0,
@@ -45,6 +46,8 @@ impl<B: Block> BitString<B> {
 	}
 
 	/// Constructs a `BitString` from a slice of blocks.
+	/// 
+	/// Blocks in a bit string are arranged in a little endian fashion.
 	///
 	/// The length of the resultant string is equivalent to the length of the
 	/// block slice multiplied by the number of bits in a block.
@@ -85,10 +88,66 @@ impl<B: Block> BitString<B> {
 		}
 
 		// Copy the smallest possible sub-slice in order to not waste memory.
-		let block_count = block::required_blocks::<B>(n);
+		let block_count = required_blocks::<B>(n);
 		BitString {
 			vec: Vec::from(&blocks[0..block_count]),
 			bit_len: n,
+		}
+	}
+
+	/// Takes the contents of `other` and converts them into a new bit string with
+	/// a different block type. The observable state of the object will not have
+	/// changed. That is, the length of the bit string along with the positions of
+	/// each bits will be the same as they were before the block conversion.
+	/// 
+	/// Note that currently only conversions to larger block sizes are supported.
+	/// For example, converting `BitString<u8>` into `BitString<u64>` but not the
+	/// other way around. Support for such an operation may be added at a later
+	/// date.
+	/// 
+	/// See also the counterpart method [`cast`].
+	/// 
+	/// [`cast`]: ./struct.BitString.html#method.cast
+	/// 
+	/// # Examples
+	/// 
+	/// ```
+	/// # use bix::bitstr::BitString;
+	/// let a = BitString::<u8>::from_blocks(&[0x21, 0x43]);
+	/// assert_eq!(
+	/// 	BitString::from_blocks(&[0x4321u16]),
+	/// 	BitString::<u16>::from(a)
+	/// );
+	/// ```
+	/// 
+	/// Note that blocks in a bit string are arranged in a little endian fashion
+	/// meaning that the larger block, in the case of this example a u16, is
+	/// 0x4321 instead of 0x2143.
+	pub fn from<A: Block>(other: BitString<A>) -> Self
+	where
+		B: FromSlice<A>,
+	{
+		if other.is_empty() {
+			return Self::new();
+		}
+
+		let n = required_slice_len::<A, B>();
+		let len = other.len();
+		let mut vec = other.vec;
+
+		// Pad vec with zero elements to ensure that we can construct full blocks.
+		for _ in 0..(n - (vec.len() % n)) {
+			vec.push(A::zero());
+		}
+
+		let mut new_vec = Vec::<B>::new();
+		for i in (0..vec.len()).step_by(n) {
+			new_vec.push(B::from_slice(&vec[i..(i + n)]));
+		}
+
+		BitString {
+			vec: new_vec,
+			bit_len: len,
 		}
 	}
 
@@ -143,6 +202,21 @@ impl<B: Block> BitString<B> {
 	#[inline]
 	pub fn into_blocks(self) -> IntoIter<B> {
 		IntoIter::new(self)
+	}
+
+	/// Casts the bit string into a new bit string with a different block type.
+	/// 
+	/// Currently, only casts to larger block types (e.g., u8 -> u16) are 
+	/// supported.
+	/// 
+	/// See the corresponding [`from`] method for a bit more information.
+	/// 
+	/// [`from`]: ./struct.BitString.html#method.from
+	#[inline]
+	pub fn cast<A: Block>(self) -> BitString<A> 
+		where A: FromSlice<B>
+	{
+		BitString::<A>::from(self)
 	}
 }
 
@@ -320,6 +394,27 @@ impl<B: Block> PartialEq for BitString<B> {
 }
 
 impl<B: Block> Eq for BitString<B> {}
+
+/// Returns the required number of blocks needed to store `n` bits.
+#[inline]
+fn required_blocks<B: Block>(n: usize) -> usize {
+	if n % B::BLOCK_SIZE == 0 {
+		n / B::BLOCK_SIZE
+	} else {
+		(n / B::BLOCK_SIZE) + 1
+	}
+}
+
+/// Returns the required number of blocks of type `A` needed to construct a
+/// block of type `B`. If `B` is a smaller type than `A`, then this function
+/// will panic.
+#[inline]
+fn required_slice_len<A: Block, B: Block>() -> usize {
+	if B::BLOCK_SIZE < A::BLOCK_SIZE {
+		panic!("cannot construct a smaller block from larger ones")
+	}
+	B::BLOCK_SIZE / A::BLOCK_SIZE
+}
 
 #[cfg(test)]
 mod test {
@@ -510,5 +605,14 @@ mod test {
 		let a = BitString::<u8>::from_blocks_truncated(&[0xf8, 0x07], 12);
 		let b = BitString::from_blocks_truncated(&[0x08, 0x00], 12);
 		assert_eq!(BitString::from_blocks_truncated(&[0x00, 0x08], 12), a + b);
+	}
+
+	#[test]
+	fn block_conversion_u8_to_u64() {
+		let a = BitString::<u8>::from_blocks_truncated(&[0x21, 0x43, 0x65], 20);
+		assert_eq!(
+			BitString::from_blocks_truncated(&[0x654321], 20),
+			BitString::<u64>::from(a)
+		);
 	}
 }

@@ -45,13 +45,6 @@ fn bench_u64_or(b: &mut Bencher) {
 	bench_or!(u64, b);
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-#[bench]
-fn bench_u256_or(b: &mut Bencher) {
-	use bix::bitstr::block::U256;
-	bench_or!(U256, b);
-}
-
 macro_rules! bench_shl {
 	( $block:ty, $bencher:ident ) => {
 		let block_count = BENCH_BYTE_COUNT / std::mem::size_of::<$block>();

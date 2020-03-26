@@ -6,9 +6,22 @@
 //!
 //! [`BitString`]: ../struct.BitString/html
 
-/// The `Block` trait unifies al of the required operations needed for bit
+use std::convert::TryInto;
+use std::ops::{BitAnd, BitOr, BitXor, Not};
+
+/// The `Block` trait unifies all of the required operations needed for bit
 /// string operations.
-pub trait Block: Sized + Clone + Copy + PartialEq + Eq {
+pub trait Block:
+	Sized
+	+ Clone
+	+ Copy
+	+ PartialEq
+	+ Eq
+	+ Not<Output = Self>
+	+ BitOr<Output = Self>
+	+ BitAnd<Output = Self>
+	+ BitXor<Output = Self>
+{
 	/// Size of this block in bits.
 	const BLOCK_SIZE: usize = std::mem::size_of::<Self>() * 8;
 
@@ -44,18 +57,6 @@ pub trait Block: Sized + Clone + Copy + PartialEq + Eq {
 
 		Self::zero().not().shr(Self::BLOCK_SIZE - n)
 	}
-
-	/// Bitwise not.
-	fn not(self) -> Self;
-
-	/// Bitwise or.
-	fn bitor(self, rhs: Self) -> Self;
-
-	/// Bitwise and.
-	fn bitand(self, rhs: Self) -> Self;
-
-	/// Bitwise xor.
-	fn bitxor(self, rhs: Self) -> Self;
 
 	/// Addition with carry in/out.
 	///
@@ -131,26 +132,6 @@ macro_rules! impl_block {
 				}
 
 				#[inline]
-				fn not(self) -> Self {
-					!self
-				}
-
-				#[inline]
-				fn bitor(self, rhs: Self) -> Self {
-					self | rhs
-				}
-
-				#[inline]
-				fn bitand(self, rhs: Self) -> Self {
-					self & rhs
-				}
-
-				#[inline]
-				fn bitxor(self, rhs: Self) -> Self {
-					self ^ rhs
-				}
-
-				#[inline]
 				fn carried_add(self, rhs: Self, carry_in: bool) -> (Self, bool) {
 					let c = if carry_in { 1 } else { 0 };
 					self.overflowing_add(rhs + c)
@@ -207,96 +188,69 @@ macro_rules! impl_block {
 
 impl_block!(u8, u16, u32, u64);
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-#[derive(Copy, Clone, Debug)]
-pub struct U256(core::arch::x86_64::__m256i);
+/// Trait allowing the construction of a block from a slice of smaller blocks in 
+/// a little endian fashion.
+pub trait FromSlice<T> {
+	/// Copies the required number of blocks from the beginning of `slice` and
+	/// combines them in a little endian fashion to create a new, larger block.
+	/// 
+	/// The exact number of required blocks is:
+	/// 
+	/// ```text
+	/// Self::BLOCK_SIZE / T::BLOCK_SIZE
+	/// ```
+	/// 
+	/// # Panics
+	/// 
+	/// This method should panic if there are not enough blocks in `slice` to
+	/// construct a new block.
+	fn from_slice(slice: &[T]) -> Self;
+}
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-impl PartialEq for U256 {
-	#[inline]
-	fn eq(&self, rhs: &Self) -> bool {
-		use core::arch::x86_64::*;
-		unsafe {
-			let packed_cmp = U256(_mm256_cmpeq_epi64(self.0, rhs.0));
-			let ones = Self::zero().not();
-			_mm256_testc_si256(packed_cmp.0, ones.0) == 1
-		}
+impl FromSlice<u8> for u16 {
+	fn from_slice(slice: &[u8]) -> Self {
+		u16::from_le_bytes((&slice[0..2]).try_into().expect("slice too small"))
 	}
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-impl Eq for U256 {}
-
-#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-impl Block for U256 {
-	#[inline]
-	fn zero() -> Self {
-		use core::arch::x86_64::*;
-		unsafe { U256(_mm256_setzero_si256()) }
-	}
-
-	#[inline]
-	fn not(self) -> Self {
-		use core::arch::x86_64::*;
-		unsafe {
-			let ones = _mm256_set1_epi8(-1);
-			U256(_mm256_xor_si256(self.0, ones))
-		}
-	}
-
-	#[inline]
-	fn bitor(self, rhs: Self) -> Self {
-		use core::arch::x86_64::*;
-		unsafe { U256(_mm256_or_si256(self.0, rhs.0)) }
-	}
-
-	#[inline]
-	fn bitand(self, rhs: Self) -> Self {
-		use core::arch::x86_64::*;
-		unsafe { U256(_mm256_and_si256(self.0, rhs.0)) }
-	}
-
-	#[inline]
-	fn bitxor(self, rhs: Self) -> Self {
-		use core::arch::x86_64::*;
-		unsafe { U256(_mm256_xor_si256(self.0, rhs.0)) }
-	}
-
-	fn carried_add(self, rhs: Self, carry_in: bool) -> (Self, bool) {
-		use core::arch::x86_64::*;
-		unsafe {
-			let parts_sum = _mm256_add_epi64(self.0, rhs.0);
-			return (U256(parts_sum), carry_in);
-		}
-	}
-
-	fn carried_shl(self, _rhs: usize, _carry_in: Self) -> (Self, Self) {
-		unimplemented!();
-	}
-
-	fn carried_shr(self, _rhs: usize, _carry_in: Self) -> (Self, Self) {
-		unimplemented!();
-	}
-
-	fn get_bit(&self, _i: usize) -> bool {
-		unimplemented!();
+impl FromSlice<u8> for u32 {
+	fn from_slice(slice: &[u8]) -> Self {
+		u32::from_le_bytes((&slice[0..4]).try_into().expect("slice too small"))
 	}
 }
 
-/// Returns the required number of blocks needed to store `n` bits.
-///
-/// # Examples
-///
-/// ```
-/// # use bix::bitstr::block;
-/// assert_eq!(block::required_blocks::<u8>(7), 1);
-/// assert_eq!(block::required_blocks::<u16>(37), 3);
-/// ```
-pub fn required_blocks<B: Block>(n: usize) -> usize {
-	if n % B::BLOCK_SIZE == 0 {
-		n / B::BLOCK_SIZE
-	} else {
-		(n / B::BLOCK_SIZE) + 1
+impl FromSlice<u16> for u32 {
+	fn from_slice(slice: &[u16]) -> Self {
+		let a = slice[0].to_le_bytes();
+		let b = slice[1].to_le_bytes();
+		let bytes = [a, b].concat();
+		u32::from_le_bytes(bytes[..].try_into().unwrap())
+	}
+}
+
+impl FromSlice<u8> for u64 {
+	fn from_slice(slice: &[u8]) -> Self {
+		u64::from_le_bytes((&slice[0..8]).try_into().expect("slice too small"))
+	}
+}
+
+impl FromSlice<u16> for u64 {
+	fn from_slice(slice: &[u16]) -> Self {
+		let a = slice[0].to_le_bytes();
+		let b = slice[1].to_le_bytes();
+		let c = slice[2].to_le_bytes();
+		let d = slice[3].to_le_bytes();
+		let bytes = [a, b, c, d].concat();
+		u64::from_le_bytes(bytes[..].try_into().unwrap())
+	}
+}
+
+impl FromSlice<u32> for u64 {
+	fn from_slice(slice: &[u32]) -> Self {
+		let a = slice[0].to_le_bytes();
+		let b = slice[1].to_le_bytes();
+		let bytes = [a, b].concat();
+		u64::from_le_bytes(bytes[..].try_into().unwrap())
 	}
 }
 
@@ -336,60 +290,81 @@ mod test {
 		}
 	}
 
-	#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-	mod u256 {
-		use super::*;
+	#[test]
+	fn u16_from_u8_slice() {
+		assert_eq!(u16::from_slice(&[0x34u8, 0x12, 0x00]), 0x1234);
+	}
 
-		/// Constructs a `U256` from 64-bit parts.
-		///
-		/// As per Intel's documentation, the bit layout of the resultant `U256` is:
-		///
-		/// ```text
-		/// dst[63:0] := d
-		/// dst[127:64] := c
-		/// dst[191:128] := b
-		/// dst[255:192] := a
-		/// dst[MAX:256] := 0
-		/// ```
-		fn u256_from_parts(a: i64, b: i64, c: i64, d: i64) -> U256 {
-			use core::arch::x86_64::*;
-			unsafe { U256(_mm256_set_epi64x(a, b, c, d)) }
-		}
+	#[test]
+	#[should_panic]
+	fn u16_from_u8_slice_not_enough_data() {
+		let _ = u16::from_slice(&[1]);
+	}
 
-		#[test]
-		fn zero_equals_zero() {
-			let a = U256::zero();
-			let b = U256::zero();
-			assert!(a.eq(&b));
-		}
+	#[test]
+	fn u32_from_u8_slice() {
+		assert_eq!(
+			u32::from_slice(&[0x78u8, 0x56, 0x34, 0x12, 0xff]),
+			0x12345678
+		);
+	}
 
-		#[test]
-		fn zero_not_equal_all_ones() {
-			let a = U256::zero();
-			let b = U256::zero().not();
-			assert!(!a.eq(&b));
-		}
+	#[test]
+	#[should_panic]
+	fn u32_from_u8_slice_not_enough_data() {
+		let _ = u32::from_slice(&[1u8, 2, 3]);
+	}
 
-		#[test]
-		fn equal() {
-			let a = u256_from_parts(531356, 134, -01135, 351643);
-			let b = a;
-			assert_eq!(a, b);
-		}
+	#[test]
+	fn u32_from_u16_slice() {
+		assert_eq!(u32::from_slice(&[0x5678u16, 0x1234, 1]), 0x12345678);
+	}
 
-		#[test]
-		fn not_equal() {
-			let a = u256_from_parts(531356, 134, -01135, 351643);
-			let b = u256_from_parts(531356, 135, -01135, 351643);
-			assert!(!a.eq(&b));
-		}
+	#[test]
+	#[should_panic]
+	fn u32_from_u16_slice_not_enough_data() {
+		let _ = u32::from_slice(&[1u16]);
+	}
 
-		#[test]
-		fn carried_add_no_carry_in() {
-			let a = u256_from_parts(0, -1, -1, -1);
-			let b = u256_from_parts(0, 0, 0, 1);
-			let expected = u256_from_parts(1, 0, 0, 0);
-			assert_eq!(a.carried_add(b, false), (expected, false));
-		}
+	#[test]
+	fn u64_from_u8_slice() {
+		assert_eq!(
+			u64::from_slice(&[0xefu8, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01]),
+			0x0123456789abcdef
+		);
+	}
+
+	#[test]
+	#[should_panic]
+	fn u64_from_u8_slice_not_enough_data() {
+		let _ = u64::from_slice(&[1u8, 2, 3, 4, 5, 6, 7]);
+	}
+
+	#[test]
+	fn u64_from_u16_slice() {
+		assert_eq!(
+			u64::from_slice(&[0xcdefu16, 0x89ab, 0x4567, 0x0123]),
+			0x0123456789abcdef
+		);
+	}
+
+	#[test]
+	#[should_panic]
+	fn u64_from_u16_slice_not_enough_data() {
+		let _ = u64::from_slice(&[1u16, 2, 3]);
+	}
+
+	#[test]
+	fn u64_from_u32_slice() {
+		assert_eq!(
+			u64::from_slice(&[0x89abcdefu32, 0x01234567]),
+			0x0123456789abcdef
+		);
+	}
+
+	#[test]
+	#[should_panic]
+	fn u64_from_u32_slice_not_enough_data() {
+		let _ = u64::from_slice(&[1u32]);
 	}
 }
