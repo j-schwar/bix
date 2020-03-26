@@ -188,20 +188,20 @@ macro_rules! impl_block {
 
 impl_block!(u8, u16, u32, u64);
 
-/// Trait allowing the construction of a block from a slice of smaller blocks in 
+/// Trait allowing the construction of a block from a slice of smaller blocks in
 /// a little endian fashion.
 pub trait FromSlice<T> {
 	/// Copies the required number of blocks from the beginning of `slice` and
 	/// combines them in a little endian fashion to create a new, larger block.
-	/// 
+	///
 	/// The exact number of required blocks is:
-	/// 
+	///
 	/// ```text
 	/// Self::BLOCK_SIZE / T::BLOCK_SIZE
 	/// ```
-	/// 
+	///
 	/// # Panics
-	/// 
+	///
 	/// This method should panic if there are not enough blocks in `slice` to
 	/// construct a new block.
 	fn from_slice(slice: &[T]) -> Self;
@@ -287,6 +287,26 @@ mod test {
 		#[test]
 		fn carried_shl_full_block_shift() {
 			assert_eq!(0x12u8.carried_shl(8, 0xff), (0xff, 0x12));
+		}
+
+		#[test]
+		fn carried_shr_with_no_carry() {
+			assert_eq!(0xffu8.carried_shr(4, 0x00), (0x0f, 0xf0));
+		}
+
+		#[test]
+		fn carried_shr_with_carry() {
+			assert_eq!(0xffu8.carried_shr(4, 0xf0), (0xff, 0xf0));
+		}
+
+		#[test]
+		fn carried_shr_null_shift() {
+			assert_eq!(0x12u8.carried_shr(0, 0xff), (0x12, 0x00));
+		}
+
+		#[test]
+		fn carried_shr_full_block_shift() {
+			assert_eq!(0x12u8.carried_shr(8, 0xff), (0xff, 0x12));
 		}
 	}
 

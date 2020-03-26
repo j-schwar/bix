@@ -6,10 +6,10 @@ pub mod iter;
 use block::Block;
 use iter::{IntoIter, Iter};
 use std::iter::FromIterator;
-use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Shl};
+use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Shl, Shr};
 
-pub use iter::PartialBlock;
 use block::FromSlice;
+pub use iter::PartialBlock;
 
 #[derive(Clone, Debug)]
 pub struct BitString<B: Block> {
@@ -46,7 +46,7 @@ impl<B: Block> BitString<B> {
 	}
 
 	/// Constructs a `BitString` from a slice of blocks.
-	/// 
+	///
 	/// Blocks in a bit string are arranged in a little endian fashion.
 	///
 	/// The length of the resultant string is equivalent to the length of the
@@ -99,18 +99,18 @@ impl<B: Block> BitString<B> {
 	/// a different block type. The observable state of the object will not have
 	/// changed. That is, the length of the bit string along with the positions of
 	/// each bits will be the same as they were before the block conversion.
-	/// 
+	///
 	/// Note that currently only conversions to larger block sizes are supported.
 	/// For example, converting `BitString<u8>` into `BitString<u64>` but not the
 	/// other way around. Support for such an operation may be added at a later
 	/// date.
-	/// 
+	///
 	/// See also the counterpart method [`cast`].
-	/// 
+	///
 	/// [`cast`]: ./struct.BitString.html#method.cast
-	/// 
+	///
 	/// # Examples
-	/// 
+	///
 	/// ```
 	/// # use bix::bitstr::BitString;
 	/// let a = BitString::<u8>::from_blocks(&[0x21, 0x43]);
@@ -119,7 +119,7 @@ impl<B: Block> BitString<B> {
 	/// 	BitString::<u16>::from(a)
 	/// );
 	/// ```
-	/// 
+	///
 	/// Note that blocks in a bit string are arranged in a little endian fashion
 	/// meaning that the larger block, in the case of this example a u16, is
 	/// 0x4321 instead of 0x2143.
@@ -205,16 +205,17 @@ impl<B: Block> BitString<B> {
 	}
 
 	/// Casts the bit string into a new bit string with a different block type.
-	/// 
-	/// Currently, only casts to larger block types (e.g., u8 -> u16) are 
+	///
+	/// Currently, only casts to larger block types (e.g., u8 -> u16) are
 	/// supported.
-	/// 
+	///
 	/// See the corresponding [`from`] method for a bit more information.
-	/// 
+	///
 	/// [`from`]: ./struct.BitString.html#method.from
 	#[inline]
-	pub fn cast<A: Block>(self) -> BitString<A> 
-		where A: FromSlice<B>
+	pub fn cast<A: Block>(self) -> BitString<A>
+	where
+		A: FromSlice<B>,
 	{
 		BitString::<A>::from(self)
 	}
@@ -284,7 +285,10 @@ macro_rules! impl_binary_op {
 					new_blocks.push(new_block);
 				}
 
-				Self::from_blocks_truncated(&new_blocks, len)
+				BitString {
+					vec: new_blocks,
+					bit_len: len,
+				}
 			}
 		}
 	};
@@ -297,26 +301,6 @@ impl_binary_op!(BitXor, bitxor);
 impl<B: Block> Shl<usize> for BitString<B> {
 	type Output = BitString<B>;
 
-	/// Performs a bitwise left shift on the bitstring, shifting all bits left
-	/// (forward) by a fixed amount.
-	///
-	/// Currently only shifts <= the block size are supported.
-	///
-	/// # Examples
-	///
-	/// ```
-	/// # use bix::bitstr::*;
-	/// let a = BitString::<u8>::from_blocks(&[0xaf, 0x08]);
-	/// assert_eq!(16, a.len());
-	///
-	/// let b = a << 1;
-	/// assert_eq!(16, b.len());
-	///
-	/// let mut iter = b.blocks();
-	/// assert_eq!(Some(PartialBlock { value: 0x5e, len: 8 }), iter.next());
-	/// assert_eq!(Some(PartialBlock { value: 0x11, len: 8 }), iter.next());
-	/// assert_eq!(None, iter.next());
-	/// ```
 	fn shl(self, rhs: usize) -> Self::Output {
 		// TODO: Add support shifts greater than the block size.
 		let len = self.len();
@@ -333,7 +317,52 @@ impl<B: Block> Shl<usize> for BitString<B> {
 			new_blocks.push(new_block);
 		}
 
-		Self::from_blocks_truncated(&new_blocks, len)
+		BitString {
+			vec: new_blocks,
+			bit_len: len,
+		}
+	}
+}
+
+impl<B: Block> Shr<usize> for BitString<B> {
+	type Output = BitString<B>;
+
+	fn shr(self, rhs: usize) -> Self::Output {
+		// TODO: Add support shifts greater than the block size.
+		let len = self.len();
+		if len == 0 {
+			return self;
+		}
+
+		let mut new_blocks = Vec::new();
+		let mut iter = self.vec.iter().rev();
+		let mut carry_in = B::zero();
+
+		// Since the last block may only partially contain good data, in order to
+		// ensure that garbage data does not get shifted into the range of good data
+		// we must mask off part of the last block.
+		if len % B::BLOCK_SIZE != 0 {
+			let mask = B::mask(len % B::BLOCK_SIZE);
+			// Bit string is not empty so there is at least one block.
+			let last_block = *iter.next().unwrap() & mask;
+			let (new_last_block, carry_out) = last_block.carried_shr(rhs, B::zero());
+			carry_in = carry_out;
+			new_blocks.push(new_last_block);
+		}
+
+		for block in iter {
+			let (new_block, carry_out) = block.carried_shr(rhs, carry_in);
+			carry_in = carry_out;
+			new_blocks.push(new_block);
+		}
+
+		// Since we iterated in reverse, new_blocks is in reverse order.
+		new_blocks.reverse();
+
+		BitString {
+			vec: new_blocks,
+			bit_len: len,
+		}
 	}
 }
 
@@ -362,7 +391,10 @@ impl<B: Block> Add for BitString<B> {
 			new_blocks.push(new_block);
 		}
 
-		Self::from_blocks_truncated(&new_blocks, len)
+		BitString {
+			vec: new_blocks,
+			bit_len: len,
+		}
 	}
 }
 
@@ -575,6 +607,26 @@ mod test {
 	fn shl_with_partial_block() {
 		let a = BitString::<u8>::from_blocks_truncated(&[0x81, 0xc0], 10);
 		assert_eq!(BitString::from_blocks_truncated(&[0x04, 0x02], 10), a << 2);
+	}
+
+	#[test]
+	fn shr_empty() {
+		let a = BitString::<u32>::new();
+		let b = a << 16;
+		assert!(b.is_empty());
+	}
+
+	#[test]
+	fn shr_whole_blocks() {
+		// c281 >> 2 = 30A0
+		let a = BitString::<u8>::from_blocks(&[0x81, 0xc2]);
+		assert_eq!(BitString::from_blocks(&[0xa0, 0x30]), a >> 2);
+	}
+
+	#[test]
+	fn shr_with_partial_block() {
+		let a = BitString::<u8>::from_blocks_truncated(&[0x81, 0xfe], 10);
+		assert_eq!(BitString::from_blocks_truncated(&[0xa0, 0x00], 10), a >> 2);
 	}
 
 	#[test]
