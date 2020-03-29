@@ -8,6 +8,7 @@
 
 use std::convert::TryInto;
 use std::ops::{BitAnd, BitOr, BitXor, Not};
+use std::fmt::Debug;
 
 /// The `Block` trait unifies all of the required operations needed for bit
 /// string operations.
@@ -15,6 +16,7 @@ pub trait Block:
 	Sized
 	+ Clone
 	+ Copy
+	+ Debug
 	+ PartialEq
 	+ Eq
 	+ Not<Output = Self>

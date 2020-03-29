@@ -3,3 +3,6 @@
 
 Cargo.lock
 *.out
+
+# For temporary testing...
+/src/main.rs

@@ -5,6 +5,7 @@ pub mod iter;
 
 use block::Block;
 use iter::{IntoIter, Iter};
+use std::fmt::{Display, Formatter};
 use std::iter::FromIterator;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Shl, Shr};
 
@@ -42,6 +43,15 @@ impl<B: Block> BitString<B> {
 		BitString {
 			vec: Vec::with_capacity(cap),
 			bit_len: 0,
+		}
+	}
+
+	/// Constructs a `BitString` of length `n` with all bits set to zero.
+	pub fn zero(n: usize) -> Self {
+		let cap = required_blocks::<B>(n);
+		BitString {
+			vec: std::iter::repeat(B::zero()).take(cap).collect(),
+			bit_len: n,
 		}
 	}
 
@@ -202,6 +212,24 @@ impl<B: Block> BitString<B> {
 	#[inline]
 	pub fn into_blocks(self) -> IntoIter<B> {
 		IntoIter::new(self)
+	}
+
+	/// Returns an iterator over the bits in the string.
+	///
+	/// # Example
+	///
+	/// ```
+	/// # use bix::bitstr::*;
+	/// let b = BitString::<u8>::from_blocks_truncated(&[0x06], 3);
+	/// let mut iter = b.bits();
+	/// assert_eq!(Some(false), iter.next());
+	/// assert_eq!(Some(true), iter.next());
+	/// assert_eq!(Some(true), iter.next());
+	/// assert_eq!(None, iter.next());
+	/// ```
+	#[inline]
+	pub fn bits(&self) -> Bits<'_, B> {
+		Bits::new(self)
 	}
 
 	/// Casts the bit string into a new bit string with a different block type.
@@ -427,6 +455,61 @@ impl<B: Block> PartialEq for BitString<B> {
 
 impl<B: Block> Eq for BitString<B> {}
 
+impl<B: Block> Display for BitString<B> {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		let width = if let Some(width) = f.width() {
+			width
+		} else {
+			self.len()
+		};
+
+		let mut iter = self.bits();
+		for _ in 0..width {
+			if iter.next().unwrap() {
+				write!(f, "1")?;
+			} else {
+				write!(f, ".")?;
+			}
+		}
+
+		Ok(())
+	}
+}
+
+/// Iterator over the bits in a `BitString`.
+///
+/// See the [`bits`] method for more information.
+///
+/// [`bits`]: ./struct.BitString.html#method.bits
+pub struct Bits<'a, B: Block> {
+	b: &'a BitString<B>,
+	bit_index: usize,
+}
+
+impl<'a, B: Block> Bits<'a, B> {
+	/// Constructs a new iterator over `b`.
+	pub fn new(b: &'a BitString<B>) -> Self {
+		Bits { b, bit_index: 0 }
+	}
+}
+
+impl<'a, B: Block> Iterator for Bits<'a, B> {
+	type Item = bool;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		if self.bit_index >= self.b.len() {
+			return None;
+		}
+
+		let block_index = self.bit_index / B::BLOCK_SIZE;
+		let bit_offset = self.bit_index % B::BLOCK_SIZE;
+		let result = self.b.vec[block_index].get_bit(bit_offset);
+		self.bit_index += 1;
+		
+		Some(result)
+	}
+}
+
 /// Returns the required number of blocks needed to store `n` bits.
 #[inline]
 fn required_blocks<B: Block>(n: usize) -> usize {
@@ -498,6 +581,12 @@ mod test {
 	fn not_with_partial_block() {
 		let a = BitString::<u8>::from_blocks_truncated(&[0x01, 0x02], 10);
 		assert_eq!(BitString::from_blocks_truncated(&[0xfe, 0x01], 10), !a);
+	}
+
+	#[test]
+	fn not_u16_with_partial_block() {
+		let a = BitString::<u16>::from_blocks_truncated(&[0x1804], 14);
+		assert_eq!(BitString::from_blocks_truncated(&[0xe7fb], 14), !a.clone());
 	}
 
 	#[test]
@@ -666,5 +755,77 @@ mod test {
 			BitString::from_blocks_truncated(&[0x654321], 20),
 			BitString::<u64>::from(a)
 		);
+	}
+
+	#[test]
+	fn small_bit_iterator() {
+		let b = BitString::<u8>::from_blocks_truncated(&[0x06], 3);
+		let mut iter = b.bits();
+		assert_eq!(Some(false), iter.next());
+		assert_eq!(Some(true), iter.next());
+		assert_eq!(Some(true), iter.next());
+		assert_eq!(None, iter.next());
+	}
+
+	mod property {
+		use super::*;
+		use quickcheck::TestResult;
+		use quickcheck_macros::quickcheck;
+
+		fn not_length_equivalence<B: Block>(src: Vec<B>, len: usize) -> TestResult {
+			if len > (src.len() * B::BLOCK_SIZE) {
+				return TestResult::discard();
+			}
+
+			let b = BitString::<B>::from_blocks_truncated(&src[..], len);
+			let expected = b.len();
+			TestResult::from_bool((!b).len() == expected)
+		}
+
+		#[quickcheck]
+		fn not_length_equivalence_u8(src: Vec<u8>, len: usize) -> TestResult {
+			not_length_equivalence(src, len)
+		}
+
+		#[quickcheck]
+		fn not_length_equivalence_u16(src: Vec<u16>, len: usize) -> TestResult {
+			not_length_equivalence(src, len)
+		}
+
+		#[quickcheck]
+		fn not_length_equivalence_u32(src: Vec<u32>, len: usize) -> TestResult {
+			not_length_equivalence(src, len)
+		}
+
+		#[quickcheck]
+		fn not_length_equivalence_u64(src: Vec<u64>, len: usize) -> TestResult {
+			not_length_equivalence(src, len)
+		}
+
+		fn whole_block_cast_length_equivalence<Src, Dst>(src: Vec<Src>) -> bool
+		where
+			Src: Block,
+			Dst: Block + FromSlice<Src>
+		{
+			let a = BitString::from_blocks(&src[..]);
+			let len = a.len();
+			let b = a.cast::<Dst>();
+			b.len() == len
+		}
+
+		#[quickcheck]
+		fn whole_block_cast_length_equivalence_u8_u16(src: Vec<u8>) -> bool {
+			whole_block_cast_length_equivalence::<u8, u16>(src)
+		}
+
+		#[quickcheck]
+		fn whole_block_cast_length_equivalence_u8_u32(src: Vec<u8>) -> bool {
+			whole_block_cast_length_equivalence::<u8, u32>(src)
+		}
+
+		#[quickcheck]
+		fn whole_block_cast_length_equivalence_u8_u64(src: Vec<u8>) -> bool {
+			whole_block_cast_length_equivalence::<u8, u64>(src)
+		}
 	}
 }

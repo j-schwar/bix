@@ -44,30 +44,29 @@ impl<'a, B: Block> Iter<'a, B> {
 	}
 }
 
+/// Returns the partial block at `index` in `b`.
+fn partial_block<B: Block>(b: &BitString<B>, index: usize) -> Option<PartialBlock<B>> {
+	let bit_len = b.len();
+	let whole_block_count = bit_len / B::BLOCK_SIZE;
+	let partial_offset = bit_len % B::BLOCK_SIZE;
+
+	if index < whole_block_count {
+		Some(PartialBlock{ value: b.vec[index], len: B::BLOCK_SIZE })
+	} else if index == whole_block_count && partial_offset != 0 {
+		Some(PartialBlock{ value: b.vec[index], len: partial_offset })
+	} else {
+		None
+	}
+}
+
 impl<'a, B: Block> Iterator for Iter<'a, B> {
 	type Item = PartialBlock<B>;
 
 	/// The next block in the iteration.
 	fn next(&mut self) -> Option<Self::Item> {
-		let block_count = self.b.vec.len();
-		if self.index >= block_count {
-			return None;
-		}
-
-		let value = self.b.vec[self.index];
-
-		// Only the last block may be partial.
-		let bit_len = self.b.len();
-		let has_partial_block = (bit_len % B::BLOCK_SIZE) != 0;
-		let len = if self.index == block_count - 1 && has_partial_block {
-			bit_len % B::BLOCK_SIZE
-		} else {
-			B::BLOCK_SIZE
-		};
-
+		let index = self.index;
 		self.index += 1;
-
-		Some(PartialBlock { value, len })
+		partial_block(self.b, index)
 	}
 }
 
@@ -88,25 +87,9 @@ impl<B: Block> Iterator for IntoIter<B> {
 	type Item = PartialBlock<B>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		let block_count = self.b.vec.len();
-		if self.index >= block_count {
-			return None;
-		}
-
-		let value = self.b.vec[self.index];
-
-		// Only the last block may be partial.
-		let bit_len = self.b.len();
-		let has_partial_block = (bit_len % B::BLOCK_SIZE) != 0;
-		let len = if self.index == block_count - 1 && has_partial_block {
-			bit_len % B::BLOCK_SIZE
-		} else {
-			B::BLOCK_SIZE
-		};
-
+		let index = self.index;
 		self.index += 1;
-
-		Some(PartialBlock { value, len })
+		partial_block(&self.b, index)
 	}
 }
 
