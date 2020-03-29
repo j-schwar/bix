@@ -209,6 +209,12 @@ pub trait FromSlice<T> {
 	fn from_slice(slice: &[T]) -> Self;
 }
 
+impl<B: Block> FromSlice<B> for B {
+	fn from_slice(slice: &[B]) -> Self {
+		slice[0]
+	}
+}
+
 impl FromSlice<u8> for u16 {
 	fn from_slice(slice: &[u8]) -> Self {
 		u16::from_le_bytes((&slice[0..2]).try_into().expect("slice too small"))
@@ -320,7 +326,7 @@ mod test {
 	#[test]
 	#[should_panic]
 	fn u16_from_u8_slice_not_enough_data() {
-		let _ = u16::from_slice(&[1]);
+		let _ = u16::from_slice(&[1u8]);
 	}
 
 	#[test]
