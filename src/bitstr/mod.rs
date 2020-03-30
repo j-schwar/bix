@@ -8,7 +8,8 @@ use iter::{IntoIter, Iter};
 use std::fmt::{Display, Formatter};
 use std::iter::FromIterator;
 use std::ops::{
-	Add, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, Shr,
+	Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl,
+	ShlAssign, Shr, ShrAssign,
 };
 
 use block::FromSlice;
@@ -332,6 +333,10 @@ macro_rules! impl_binary_op_assign {
 	($trait_name:ident, $fn_name:tt) => {
 		impl<B: Block> $trait_name<BitString<B>> for BitString<B> {
 			fn $fn_name(&mut self, rhs: BitString<B>) {
+				if self.len() != rhs.len() {
+					panic!("bitstring length mismatch");
+				}
+
 				for (i, pb) in rhs.blocks().enumerate() {
 					let block = pb.value;
 					self.vec[i].$fn_name(block);
@@ -341,6 +346,10 @@ macro_rules! impl_binary_op_assign {
 
 		impl<'a, B: Block> $trait_name<&'a BitString<B>> for BitString<B> {
 			fn $fn_name(&mut self, rhs: &'a BitString<B>) {
+				if self.len() != rhs.len() {
+					panic!("bitstring length mismatch");
+				}
+
 				for (i, pb) in rhs.blocks().enumerate() {
 					let block = pb.value;
 					self.vec[i].$fn_name(block);
@@ -358,7 +367,7 @@ impl<B: Block> Shl<usize> for BitString<B> {
 	type Output = BitString<B>;
 
 	fn shl(self, rhs: usize) -> Self::Output {
-		// TODO: Add support shifts greater than the block size.
+		// TODO: Add support for shifts greater than the block size.
 		let len = self.len();
 		if len == 0 {
 			return self;
@@ -380,11 +389,24 @@ impl<B: Block> Shl<usize> for BitString<B> {
 	}
 }
 
+impl<B: Block> ShlAssign<usize> for BitString<B> {
+	fn shl_assign(&mut self, rhs: usize) {
+		// TODO: Add support for shifts greater than the block size.
+		let mut carry_in = B::zero();
+		for i in 0..self.vec.len() {
+			let block: B = self.vec[i];
+			let (new_block, carry_out) = block.carried_shl(rhs, carry_in);
+			carry_in = carry_out;
+			self.vec[i] = new_block;
+		}
+	}
+}
+
 impl<B: Block> Shr<usize> for BitString<B> {
 	type Output = BitString<B>;
 
 	fn shr(self, rhs: usize) -> Self::Output {
-		// TODO: Add support shifts greater than the block size.
+		// TODO: Add support for shifts greater than the block size.
 		let len = self.len();
 		if len == 0 {
 			return self;
@@ -422,6 +444,36 @@ impl<B: Block> Shr<usize> for BitString<B> {
 	}
 }
 
+impl<B: Block> ShrAssign<usize> for BitString<B> {
+	fn shr_assign(&mut self, rhs: usize) {
+		if self.is_empty() {
+			return;
+		}
+
+		let mut iter = (0..self.vec.len()).rev();
+		let mut carry_in = B::zero();
+
+		// Mask off garbage data in the last block if necessary.
+		let len = self.len();
+		if len % B::BLOCK_SIZE != 0 {
+			let mask = B::mask(len % B::BLOCK_SIZE);
+			// Self is not empty so there must be at least one block.
+			let index = iter.next().unwrap();
+			let last_block = self.vec[index] & mask;
+			let (new_last_block, carry_out) = last_block.carried_shr(rhs, carry_in);
+			carry_in = carry_out;
+			self.vec[index] = new_last_block;
+		}
+
+		for index in iter {
+			let block = self.vec[index];
+			let (new_block, carry_out) = block.carried_shr(rhs, carry_in);
+			carry_in = carry_out;
+			self.vec[index] = new_block;
+		}
+	}
+}
+
 impl<B: Block> Add for BitString<B> {
 	type Output = BitString<B>;
 
@@ -450,6 +502,22 @@ impl<B: Block> Add for BitString<B> {
 		BitString {
 			vec: new_blocks,
 			bit_len: len,
+		}
+	}
+}
+
+impl<B: Block> AddAssign for BitString<B> {
+	fn add_assign(&mut self, rhs: BitString<B>) {
+		if self.len() != rhs.len() {
+			panic!("bitstring length mismatch");
+		}
+
+		let mut carry_in = false;
+		for (i, pb) in rhs.blocks().enumerate() {
+			let block = pb.value;
+			let (new_block, carry_out) = block.carried_add(self.vec[i], carry_in);
+			carry_in = carry_out;
+			self.vec[i] = new_block;
 		}
 	}
 }
