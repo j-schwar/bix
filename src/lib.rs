@@ -32,7 +32,7 @@ pub mod parse {
 
 	pub fn basis<B: Block>(bytes: &[u8]) -> BasisSet<B>
 	where
-		B: crate::bitstr::block::FromSlice<u8>
+		B: crate::bitstr::block::FromSlice<u8>,
 	{
 		use crate::bitstr::PartialBlock;
 
@@ -108,9 +108,9 @@ pub mod parse {
 			use crate::bitstr::block::FromSlice;
 			use quickcheck_macros::quickcheck;
 
-			fn basis_length_equivalence<B>(src: Vec<u8>) -> bool 
+			fn basis_length_equivalence<B>(src: Vec<u8>) -> bool
 			where
-				B: Block + FromSlice<u8>
+				B: Block + FromSlice<u8>,
 			{
 				let len = src.len();
 				let basis = basis::<B>(&src[..]);
@@ -132,7 +132,7 @@ pub mod parse {
 			fn basis_length_equivalence_u32(src: Vec<u8>) -> bool {
 				basis_length_equivalence::<u32>(src)
 			}
-			
+
 			#[quickcheck]
 			fn basis_length_equivalence_u64(src: Vec<u8>) -> bool {
 				basis_length_equivalence::<u64>(src)

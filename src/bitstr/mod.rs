@@ -505,7 +505,7 @@ impl<'a, B: Block> Iterator for Bits<'a, B> {
 		let bit_offset = self.bit_index % B::BLOCK_SIZE;
 		let result = self.b.vec[block_index].get_bit(bit_offset);
 		self.bit_index += 1;
-		
+
 		Some(result)
 	}
 }
@@ -805,7 +805,7 @@ mod test {
 		fn whole_block_cast_length_equivalence<Src, Dst>(src: Vec<Src>) -> bool
 		where
 			Src: Block,
-			Dst: Block + FromSlice<Src>
+			Dst: Block + FromSlice<Src>,
 		{
 			let a = BitString::from_blocks(&src[..]);
 			let len = a.len();

@@ -51,9 +51,15 @@ fn partial_block<B: Block>(b: &BitString<B>, index: usize) -> Option<PartialBloc
 	let partial_offset = bit_len % B::BLOCK_SIZE;
 
 	if index < whole_block_count {
-		Some(PartialBlock{ value: b.vec[index], len: B::BLOCK_SIZE })
+		Some(PartialBlock {
+			value: b.vec[index],
+			len: B::BLOCK_SIZE,
+		})
 	} else if index == whole_block_count && partial_offset != 0 {
-		Some(PartialBlock{ value: b.vec[index], len: partial_offset })
+		Some(PartialBlock {
+			value: b.vec[index],
+			len: partial_offset,
+		})
 	} else {
 		None
 	}

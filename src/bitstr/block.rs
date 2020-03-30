@@ -7,8 +7,8 @@
 //! [`BitString`]: ../struct.BitString/html
 
 use std::convert::TryInto;
-use std::ops::{BitAnd, BitOr, BitXor, Not};
 use std::fmt::Debug;
+use std::ops::{BitAnd, BitOr, BitXor, Not};
 
 /// The `Block` trait unifies all of the required operations needed for bit
 /// string operations.
