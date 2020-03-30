@@ -4,6 +4,7 @@ extern crate test;
 
 use bix::bitstr::block::Block;
 use bix::BitString;
+use bix::parse;
 use test::Bencher;
 
 /// The size of bit string to use for benchmarking in bytes.
@@ -106,4 +107,30 @@ fn bench_u32_add(b: &mut Bencher) {
 #[bench]
 fn bench_u64_add(b: &mut Bencher) {
 	bench_add!(u64, b);
+}
+
+#[bench]
+fn basis_u64(b: &mut Bencher) {
+	let src: Vec<u8> = std::iter::repeat(0xabu8).take(BENCH_BYTE_COUNT).collect();
+	b.iter(|| {
+		let _ = parse::basis::<u64>(&src[..]);
+	});
+}
+
+#[bench]
+fn byte_u64(b: &mut Bencher) {
+	let src: Vec<u8> = std::iter::repeat(0xabu8).take(BENCH_BYTE_COUNT).collect();
+	let basis = parse::basis::<u64>(&src[..]);
+	b.iter(|| {
+		let _ = parse::byte(0xab, &basis);
+	});
+}
+
+#[bench]
+fn byte_seq_u64(b: &mut Bencher) {
+	let src: Vec<u8> = std::iter::repeat(0xabu8).take(BENCH_BYTE_COUNT).collect();
+	let basis = parse::basis::<u64>(&src[..]);
+	b.iter(|| {
+		let _ = parse::byte_seq(&[0xab, 0xab, 0xab, 0xab], &basis);
+	});
 }

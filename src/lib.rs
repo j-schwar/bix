@@ -62,10 +62,10 @@ pub mod parse {
 		let mut result = !BitString::zero(basis[0].len());
 		for i in 0..8 {
 			if c.get_bit(i) {
-				result = result & basis[i].clone();
+				result &= &basis[i];
 			} else {
 				let neg = !basis[i].clone();
-				result = result & neg;
+				result &= neg;
 			}
 		}
 		return result;
@@ -78,7 +78,8 @@ pub mod parse {
 
 		let mut result = byte(seq[0], basis);
 		for b in &seq[1..] {
-			result = (result << 1) & byte(*b, basis);
+			result <<= 1;
+			result &= byte(*b, basis);
 		}
 		return result;
 	}
