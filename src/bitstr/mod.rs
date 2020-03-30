@@ -7,7 +7,7 @@ use block::Block;
 use iter::{IntoIter, Iter};
 use std::fmt::{Display, Formatter};
 use std::iter::FromIterator;
-use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Shl, Shr};
+use std::ops::{Add, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, Shr};
 
 use block::FromSlice;
 pub use iter::PartialBlock;
@@ -325,6 +325,32 @@ macro_rules! impl_binary_op {
 impl_binary_op!(BitOr, bitor);
 impl_binary_op!(BitAnd, bitand);
 impl_binary_op!(BitXor, bitxor);
+
+macro_rules! impl_binary_op_assign {
+	($trait_name:ident, $fn_name:tt) => {
+		impl<B: Block> $trait_name<BitString<B>> for BitString<B> {
+			fn $fn_name(&mut self, rhs: BitString<B>) {
+				for (i, pb) in rhs.blocks().enumerate() {
+					let block = pb.value;
+					self.vec[i].$fn_name(block);
+				}
+			}
+		}
+
+		impl<'a, B: Block> $trait_name<&'a BitString<B>> for BitString<B> {
+			fn $fn_name(&mut self, rhs: &'a BitString<B>) {
+				for (i, pb) in rhs.blocks().enumerate() {
+					let block = pb.value;
+					self.vec[i].$fn_name(block);
+				}
+			}
+		}
+	};
+}
+
+impl_binary_op_assign!(BitOrAssign, bitor_assign);
+impl_binary_op_assign!(BitAndAssign, bitand_assign);
+impl_binary_op_assign!(BitXorAssign, bitxor_assign);
 
 impl<B: Block> Shl<usize> for BitString<B> {
 	type Output = BitString<B>;

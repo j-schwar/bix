@@ -7,7 +7,7 @@
 //! [`BitString`]: ../struct.BitString/html
 
 use std::convert::TryInto;
-use std::ops::{BitAnd, BitOr, BitXor, Not};
+use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};
 use std::fmt::Debug;
 
 /// The `Block` trait unifies all of the required operations needed for bit
@@ -23,6 +23,9 @@ pub trait Block:
 	+ BitOr<Output = Self>
 	+ BitAnd<Output = Self>
 	+ BitXor<Output = Self>
+	+ BitOrAssign
+	+ BitAndAssign
+	+ BitXorAssign
 {
 	/// Size of this block in bits.
 	const BLOCK_SIZE: usize = std::mem::size_of::<Self>() * 8;
