@@ -8,7 +8,7 @@
 
 use std::convert::TryInto;
 use std::fmt::Debug;
-use std::ops::{BitAnd, BitOr, BitXor, Not};
+use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};
 
 /// The `Block` trait unifies all of the required operations needed for bit
 /// string operations.
@@ -23,6 +23,9 @@ pub trait Block:
 	+ BitOr<Output = Self>
 	+ BitAnd<Output = Self>
 	+ BitXor<Output = Self>
+	+ BitOrAssign
+	+ BitAndAssign
+	+ BitXorAssign
 {
 	/// Size of this block in bits.
 	const BLOCK_SIZE: usize = std::mem::size_of::<Self>() * 8;
@@ -209,6 +212,12 @@ pub trait FromSlice<T> {
 	fn from_slice(slice: &[T]) -> Self;
 }
 
+impl<B: Block> FromSlice<B> for B {
+	fn from_slice(slice: &[B]) -> Self {
+		slice[0]
+	}
+}
+
 impl FromSlice<u8> for u16 {
 	fn from_slice(slice: &[u8]) -> Self {
 		u16::from_le_bytes((&slice[0..2]).try_into().expect("slice too small"))
@@ -320,7 +329,7 @@ mod test {
 	#[test]
 	#[should_panic]
 	fn u16_from_u8_slice_not_enough_data() {
-		let _ = u16::from_slice(&[1]);
+		let _ = u16::from_slice(&[1u8]);
 	}
 
 	#[test]
