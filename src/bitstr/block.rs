@@ -125,13 +125,16 @@ pub trait Block:
 	///
 	/// This method should panic if `i` is >= to the block size of `Self`.
 	fn get_bit(&self, i: usize) -> bool;
+
+	/// Returns the number of ones in the binary representation of `self`.
+	fn pop_count(&self) -> usize;
 }
 
 macro_rules! impl_block {
 	( $( $t:ty ),* ) => {
 		$(
 			impl Block for $t {
-				#[inline]
+				#[inline(always)]
 				fn zero() -> Self {
 					0
 				}
@@ -185,6 +188,11 @@ macro_rules! impl_block {
 					}
 
 					((self >> i) & 1) != 0
+				}
+
+				#[inline(always)]
+				fn pop_count(&self) -> usize {
+					self.count_ones() as usize
 				}
 			}
 		)*

@@ -259,6 +259,14 @@ impl<B: Block> BitString<B> {
 	{
 		BitString::<A>::from(self)
 	}
+
+	/// Returns the number of one bits in `self`.
+	pub fn pop_count(&self) -> usize {
+		self.blocks().fold(0, |acc, (block, len)| {
+			let masked = block & B::mask(len);
+			acc + masked.pop_count()
+		})
+	}
 }
 
 impl<B: Block> FromIterator<(B, usize)> for BitString<B> {
@@ -919,6 +927,12 @@ mod test {
 		assert_eq!(Some(true), iter.next());
 		assert_eq!(Some(true), iter.next());
 		assert_eq!(None, iter.next());
+	}
+
+	#[test]
+	fn pop_count() {
+		let b = BitString::<u64>::from_blocks_truncated(&[0b11010011101, 0b10000001110111011], 70);
+		assert_eq!(12, b.pop_count());
 	}
 
 	mod property {
