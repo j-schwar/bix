@@ -34,15 +34,10 @@ pub mod parse {
 	where
 		B: crate::bitstr::block::FromSlice<u8>,
 	{
-		use crate::bitstr::PartialBlock;
-
 		let src = BitString::from_blocks(bytes).cast::<u64>();
 		let n_bit = |b: BitString<u64>, n: usize| -> BitString<u8> {
 			b.into_blocks()
-				.map(|pb| PartialBlock {
-					value: packed_nth_bits_in_bytes(pb.value, n),
-					len: pb.len / 8,
-				})
+				.map(|(block, len)| (packed_nth_bits_in_bytes(block, n), len / 8))
 				.collect()
 		};
 

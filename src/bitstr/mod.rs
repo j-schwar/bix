@@ -1,10 +1,8 @@
 //! Defines the generic `BitString` type.
 
 pub mod block;
-pub mod iter;
 
 use block::Block;
-use iter::{IntoIter, Iter};
 use std::fmt::{Display, Formatter};
 use std::iter::FromIterator;
 use std::ops::{
@@ -13,7 +11,6 @@ use std::ops::{
 };
 
 use block::FromSlice;
-pub use iter::PartialBlock;
 
 #[derive(Clone, Debug)]
 pub struct BitString<B: Block> {
@@ -176,45 +173,57 @@ impl<B: Block> BitString<B> {
 		self.len() == 0
 	}
 
-	/// Returns an immutable iterator over the blocks in the string.
+	/// Returns an iterator over the blocks in `self`.
 	///
-	/// Note that depending on the length of the bitstring, not all bits in the
-	/// last block may contain valid data.
+	/// Since the number of bits in the bit string may not be a perfect multiple
+	/// of the block size the last block in the bit string may only partially
+	/// contain valid data. As such, the iterator returns the number of valid bits
+	/// in the block along with the actual block itself.
 	///
-	/// # Example
+	/// # Examples
 	///
 	/// ```
 	/// # use bix::bitstr::*;
-	/// let b: BitString<u64> = BitString::from_blocks(&[1, 2]);
+	/// let b = BitString::<u64>::from_blocks_truncated(&[1, 2, 3], 130);
 	/// let mut iter = b.blocks();
+	/// assert_eq!(Some((1, 64)), iter.next());
+	/// assert_eq!(Some((2, 64)), iter.next());
 	///
-	/// assert_eq!(iter.next(), Some(PartialBlock { value: 1, len: 64 }));
-	/// assert_eq!(iter.next(), Some(PartialBlock { value: 2, len: 64 }));
-	/// assert_eq!(iter.next(), None);
+	/// // Only the bottom two bits of this block contain valid data, the rest is
+	/// // garbage.
+	/// assert_eq!(Some((3, 2)), iter.next());
+	///
+	/// assert_eq!(None, iter.next());
 	/// ```
 	#[inline]
-	pub fn blocks(&self) -> Iter<'_, B> {
-		Iter::new(&self)
+	pub fn blocks(&self) -> Blocks<'_, B> {
+		Blocks::new(&self)
 	}
 
-	/// Returns an iterator over the blocks in the string.
+	/// Returns an owning iterator over the blocks in `self`.
 	///
-	/// Note that depending on the length of the bitstring, not all bits in the
-	/// last block may contain valid data.
+	/// Like with [`blocks`], the number of valid bits are also returned along
+	/// with each block when iterating.
 	///
-	/// # Example
+	/// [`blocks`]: ./struct.BitString.html#method.blocks
+	///
+	/// # Examples
 	///
 	/// ```
 	/// # use bix::bitstr::*;
-	/// let b: BitString<u64> = BitString::from_blocks(&[1, 2]);
+	/// let b = BitString::<u64>::from_blocks_truncated(&[1, 2, 3], 130);
 	/// let mut iter = b.into_blocks();
+	/// assert_eq!(Some((1, 64)), iter.next());
+	/// assert_eq!(Some((2, 64)), iter.next());
 	///
-	/// assert_eq!(iter.next(), Some(PartialBlock { value: 1, len: 64 }));
-	/// assert_eq!(iter.next(), Some(PartialBlock { value: 2, len: 64 }));
-	/// assert_eq!(iter.next(), None);
+	/// // Only the bottom two bits of this block contain valid data, the rest is
+	/// // garbage.
+	/// assert_eq!(Some((3, 2)), iter.next());
+	///
+	/// assert_eq!(None, iter.next());
 	#[inline]
-	pub fn into_blocks(self) -> IntoIter<B> {
-		IntoIter::new(self)
+	pub fn into_blocks(self) -> IntoBlocks<B> {
+		IntoBlocks::new(self)
 	}
 
 	/// Returns an iterator over the bits in the string.
@@ -252,14 +261,16 @@ impl<B: Block> BitString<B> {
 	}
 }
 
-impl<B: Block> FromIterator<PartialBlock<B>> for BitString<B> {
-	/// Constructs a `BitString` from an iterator over partial blocks.
-	fn from_iter<T: IntoIterator<Item = PartialBlock<B>>>(iter: T) -> Self {
+impl<B: Block> FromIterator<(B, usize)> for BitString<B> {
+	fn from_iter<T: IntoIterator<Item = (B, usize)>>(iter: T) -> Self {
+		// TODO: Should assert that only the last block may be partial. That or
+		// 	implement this in such a way that we can handle combining multiple
+		//	partial blocks.
 		let mut vec = Vec::new();
 		let mut bit_len = 0;
 		for x in iter {
-			vec.push(x.value);
-			bit_len += x.len;
+			vec.push(x.0);
+			bit_len += x.1;
 		}
 		BitString { vec, bit_len }
 	}
@@ -268,27 +279,8 @@ impl<B: Block> FromIterator<PartialBlock<B>> for BitString<B> {
 impl<B: Block> Not for BitString<B> {
 	type Output = BitString<B>;
 
-	/// Performs a bitwise not on the bitstring flipping all of its bits.
-	///
-	/// # Examples
-	///
-	/// ```
-	/// # use bix::bitstr::*;
-	/// let a = BitString::<u8>::from_blocks_truncated(&[0x01, 0x02], 10);
-	/// assert_eq!(10, a.len());
-	///
-	/// let b = !a;
-	/// assert_eq!(10, b.len());
-	///
-	/// let mut iter = b.blocks();
-	/// assert_eq!(Some(PartialBlock { value: 0xfe, len: 8 }), iter.next());
-	/// assert_eq!(Some(PartialBlock { value: 0xfd, len: 2 }), iter.next());
-	/// assert_eq!(None, iter.next());
-	/// ```
 	fn not(self) -> Self::Output {
-		self.into_blocks()
-			.map(|p| p.map(|v| B::from(v.not())))
-			.collect()
+		self.into_blocks().map(|(b, l)| (!b, l)).collect()
 	}
 }
 
@@ -309,9 +301,8 @@ macro_rules! impl_binary_op {
 				let left_iter = self.into_blocks();
 				let mut right_iter = rhs.into_blocks();
 				let mut new_blocks = Vec::new();
-				for partial_left_block in left_iter {
-					let left_block = partial_left_block.value;
-					let right_block = right_iter.next().unwrap().value;
+				for (left_block, _) in left_iter {
+					let (right_block, _) = right_iter.next().unwrap();
 					let new_block = B::from(left_block.$fn_name(right_block));
 					new_blocks.push(new_block);
 				}
@@ -337,8 +328,7 @@ macro_rules! impl_binary_op_assign {
 					panic!("bitstring length mismatch");
 				}
 
-				for (i, pb) in rhs.blocks().enumerate() {
-					let block = pb.value;
+				for (i, (block, _)) in rhs.blocks().enumerate() {
 					self.vec[i].$fn_name(block);
 				}
 			}
@@ -350,8 +340,7 @@ macro_rules! impl_binary_op_assign {
 					panic!("bitstring length mismatch");
 				}
 
-				for (i, pb) in rhs.blocks().enumerate() {
-					let block = pb.value;
+				for (i, (block, _)) in rhs.blocks().enumerate() {
 					self.vec[i].$fn_name(block);
 				}
 			}
@@ -375,8 +364,7 @@ impl<B: Block> Shl<usize> for BitString<B> {
 
 		let mut new_blocks = Vec::new();
 		let mut carry_in = B::zero();
-		for partial_block in self.into_blocks() {
-			let block = partial_block.value;
+		for (block, _) in self.into_blocks() {
 			let (new_block, carry_out) = block.carried_shl(rhs, carry_in);
 			carry_in = carry_out;
 			new_blocks.push(new_block);
@@ -491,9 +479,8 @@ impl<B: Block> Add for BitString<B> {
 		let mut new_blocks = Vec::new();
 		let mut carry_in = false;
 		let mut rhs_iter = rhs.into_blocks();
-		for partial_block in self.into_blocks() {
-			let left_block = partial_block.value;
-			let right_block = rhs_iter.next().unwrap().value;
+		for (left_block, _) in self.into_blocks() {
+			let (right_block, _) = rhs_iter.next().unwrap();
 			let (new_block, carry_out) = left_block.carried_add(right_block, carry_in);
 			carry_in = carry_out;
 			new_blocks.push(new_block);
@@ -513,8 +500,7 @@ impl<B: Block> AddAssign for BitString<B> {
 		}
 
 		let mut carry_in = false;
-		for (i, pb) in rhs.blocks().enumerate() {
-			let block = pb.value;
+		for (i, (block, _)) in rhs.blocks().enumerate() {
 			let (new_block, carry_out) = block.carried_add(self.vec[i], carry_in);
 			carry_in = carry_out;
 			self.vec[i] = new_block;
@@ -529,12 +515,12 @@ impl<B: Block> PartialEq for BitString<B> {
 		}
 
 		let mut other_iter = other.blocks();
-		for PartialBlock {
-			value: l_block,
-			len: block_len,
-		} in self.blocks()
-		{
-			let r_block = other_iter.next().unwrap().value;
+		for (l_block, block_len) in self.blocks() {
+			let (r_block, _) = other_iter.next().unwrap();
+
+			// TODO: We are assuming that both the left and right block have the same
+			// 	number of valid bits, we should assert that this case is true either
+			// 	here, or in our constructors (e.g., from_iter).
 
 			// Mask off bits which don't contain valid data.
 			let mask = B::mask(block_len);
@@ -603,6 +589,78 @@ impl<'a, B: Block> Iterator for Bits<'a, B> {
 		self.bit_index += 1;
 
 		Some(result)
+	}
+}
+
+/// Returns the block at `index` in `b` along with the number of valid bits it
+/// contains.
+fn block_at<B: Block>(b: &BitString<B>, index: usize) -> Option<(B, usize)> {
+	let bit_len = b.len();
+	let whole_block_count = bit_len / B::BLOCK_SIZE;
+	let partial_offset = bit_len % B::BLOCK_SIZE;
+
+	if index < whole_block_count {
+		Some((b.vec[index], B::BLOCK_SIZE))
+	} else if index == whole_block_count && partial_offset != 0 {
+		Some((b.vec[index], partial_offset))
+	} else {
+		None
+	}
+}
+
+/// Iterator over the blocks in a [`BitString`].
+///
+/// See the [`blocks`] method for more information.
+///
+/// [`BitString`]: ./struct.BitString.html
+/// [`blocks`]: ./struct.BitString.html#method.blocks
+pub struct Blocks<'a, B: Block> {
+	b: &'a BitString<B>,
+	index: usize,
+}
+
+impl<'a, B: Block> Blocks<'a, B> {
+	/// Constructs a new iterator over `b`.
+	pub fn new(b: &'a BitString<B>) -> Self {
+		Blocks { b, index: 0 }
+	}
+}
+
+impl<'a, B: Block> Iterator for Blocks<'a, B> {
+	type Item = (B, usize);
+
+	fn next(&mut self) -> Option<Self::Item> {
+		let index = self.index;
+		self.index += 1;
+		block_at(self.b, index)
+	}
+}
+
+/// Owning iterator over the blocks in a [`BitString`].
+///
+/// See the [`into_blocks`] method for more information.
+///
+/// [`BitString`]: ./struct.BitString.html
+/// [`into_blocks`]: ./struct.BitString.html#method.into_blocks
+pub struct IntoBlocks<B: Block> {
+	b: BitString<B>,
+	index: usize,
+}
+
+impl<B: Block> IntoBlocks<B> {
+	/// Constructs a new iterator over `b`.
+	pub fn new(b: BitString<B>) -> Self {
+		IntoBlocks { b, index: 0 }
+	}
+}
+
+impl<B: Block> Iterator for IntoBlocks<B> {
+	type Item = (B, usize);
+
+	fn next(&mut self) -> Option<Self::Item> {
+		let index = self.index;
+		self.index += 1;
+		block_at(&self.b, index)
 	}
 }
 

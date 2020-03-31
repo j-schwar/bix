@@ -3,8 +3,8 @@
 extern crate test;
 
 use bix::bitstr::block::Block;
-use bix::BitString;
 use bix::parse;
+use bix::BitString;
 use test::Bencher;
 
 /// The size of bit string to use for benchmarking in bytes.
