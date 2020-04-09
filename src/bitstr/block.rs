@@ -17,6 +17,7 @@ pub trait Block:
 	+ Clone
 	+ Copy
 	+ Debug
+	+ Send
 	+ PartialEq
 	+ Eq
 	+ Not<Output = Self>
@@ -26,6 +27,7 @@ pub trait Block:
 	+ BitOrAssign
 	+ BitAndAssign
 	+ BitXorAssign
+	+ 'static
 {
 	/// Size of this block in bits.
 	const BLOCK_SIZE: usize = std::mem::size_of::<Self>() * 8;

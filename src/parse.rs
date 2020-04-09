@@ -2,6 +2,8 @@
 
 use crate::bitstr::block::FromSlice;
 use crate::prelude::{BitString, Block};
+// use futures::join;
+use tokio::runtime;
 
 pub type BasisSet<B> = [BitString<B>; 8];
 
@@ -27,27 +29,36 @@ fn packed_nth_bits_in_bytes(x: u64, n: usize) -> u8 {
 	return result;
 }
 
+async fn n_bit<B: Block + FromSlice<u8>>(b: BitString<u64>, i: usize) -> BitString<B> {
+	b.into_blocks()
+		.map(|(block, len)| (packed_nth_bits_in_bytes(block, i), len / 8))
+		.collect::<BitString<u8>>()
+		.cast()
+}
+
 pub fn basis<B: Block>(bytes: &[u8]) -> BasisSet<B>
 where
 	B: FromSlice<u8>,
 {
 	let src = BitString::from_blocks(bytes).cast::<u64>();
-	let n_bit = |b: BitString<u64>, n: usize| -> BitString<u8> {
-		b.into_blocks()
-			.map(|(block, len)| (packed_nth_bits_in_bytes(block, n), len / 8))
-			.collect()
+
+	let f = async {
+		tokio::join!(
+			tokio::spawn(n_bit(src.clone(), 0)),
+			tokio::spawn(n_bit(src.clone(), 1)),
+			tokio::spawn(n_bit(src.clone(), 2)),
+			tokio::spawn(n_bit(src.clone(), 3)),
+			tokio::spawn(n_bit(src.clone(), 4)),
+			tokio::spawn(n_bit(src.clone(), 5)),
+			tokio::spawn(n_bit(src.clone(), 6)),
+			tokio::spawn(n_bit(src.clone(), 7)),
+		)
 	};
 
-	[
-		n_bit(src.clone(), 0).cast(),
-		n_bit(src.clone(), 1).cast(),
-		n_bit(src.clone(), 2).cast(),
-		n_bit(src.clone(), 3).cast(),
-		n_bit(src.clone(), 4).cast(),
-		n_bit(src.clone(), 5).cast(),
-		n_bit(src.clone(), 6).cast(),
-		n_bit(src.clone(), 7).cast(),
-	]
+	let mut rt = runtime::Runtime::new().expect("Failed to construct runtime");
+	let (b0, b1, b2, b3, b4, b5, b6, b7) = rt.block_on(f);
+
+	[b0.expect(""), b1.expect(""), b2.expect(""), b3.expect(""), b4.expect(""), b5.expect(""), b6.expect(""), b7.expect("")]
 }
 
 pub fn byte<B: Block>(c: u8, basis: &BasisSet<B>) -> BitString<B> {
