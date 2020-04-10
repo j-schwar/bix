@@ -3,6 +3,8 @@
 use crate::bitstr::block::FromSlice;
 use crate::prelude::{BitString, Block};
 use std::ops::Index;
+use std::borrow::Borrow;
+use std::sync::Arc;
 
 /// A collections of bit strings idiomatically referring to the 8 bit strings
 /// which make up the contents of some text.
@@ -65,33 +67,73 @@ fn packed_nth_bits_in_bytes(x: u64, n: usize) -> u8 {
 	return result;
 }
 
-async fn n_bit<B: Block + FromSlice<u8>>(b: BitString<u64>, i: usize) -> BitString<B> {
+/// Computes the `i`th basis string from `b`.
+fn basis_string<B>(b: BitString<u64>, i: usize) -> BitString<B>
+where
+	B: Block + FromSlice<u8>
+{
 	b.into_blocks()
 		.map(|(block, len)| (packed_nth_bits_in_bytes(block, i), len / 8))
 		.collect::<BitString<u8>>()
 		.cast()
 }
 
-pub async fn basis<B>(bytes: &[u8]) -> BasisSet<B>
+/// Computes the basis set for `src`.
+pub fn basis<B>(src: &[u8]) -> BasisSet<B>
+where
+	B: Block + FromSlice<u8>
+{
+	let src = BitString::from_blocks(src).cast::<u64>();
+	let arr = [
+		basis_string(src.clone(), 0),
+		basis_string(src.clone(), 1),
+		basis_string(src.clone(), 2),
+		basis_string(src.clone(), 3),
+		basis_string(src.clone(), 4),
+		basis_string(src.clone(), 5),
+		basis_string(src.clone(), 6),
+		basis_string(src.clone(), 7),
+	];
+
+	BasisSet::new(arr)
+}
+
+/// Computes the `i`th basis string from `b`.
+async fn async_basis_string<Src, B>(b: Src, i: usize) -> BitString<B>
+where
+	Src: Borrow<BitString<u64>>,
+	B: Block + FromSlice<u8>
+{
+	b.borrow()
+		.clone()
+		.into_blocks()
+		.map(|(block, len)| (packed_nth_bits_in_bytes(block, i), len / 8))
+		.collect::<BitString<u8>>()
+		.cast()
+}
+
+/// Asynchronously computes the basis set for `src`.
+pub async fn async_basis<B>(bytes: &[u8]) -> BasisSet<B>
 where
 	B: Block + FromSlice<u8>,
 {
-	let src = BitString::from_blocks(bytes).cast::<u64>();
+	let src = Arc::new(BitString::from_blocks(bytes).cast::<u64>());
 	let (b0, b1, b2, b3, b4, b5, b6, b7) = tokio::try_join!(
-		tokio::spawn(n_bit(src.clone(), 0)),
-		tokio::spawn(n_bit(src.clone(), 1)),
-		tokio::spawn(n_bit(src.clone(), 2)),
-		tokio::spawn(n_bit(src.clone(), 3)),
-		tokio::spawn(n_bit(src.clone(), 4)),
-		tokio::spawn(n_bit(src.clone(), 5)),
-		tokio::spawn(n_bit(src.clone(), 6)),
-		tokio::spawn(n_bit(src.clone(), 7)),
+		tokio::spawn(async_basis_string(src.clone(), 0)),
+		tokio::spawn(async_basis_string(src.clone(), 1)),
+		tokio::spawn(async_basis_string(src.clone(), 2)),
+		tokio::spawn(async_basis_string(src.clone(), 3)),
+		tokio::spawn(async_basis_string(src.clone(), 4)),
+		tokio::spawn(async_basis_string(src.clone(), 5)),
+		tokio::spawn(async_basis_string(src.clone(), 6)),
+		tokio::spawn(async_basis_string(src.clone(), 7)),
 	)
 	.expect("Failed to processes basis strings");
 
 	BasisSet::new([b0, b1, b2, b3, b4, b5, b6, b7])
 }
 
+/// Returns a bit string with 1 bits marking the positions of `c` in `basis`.
 pub fn byte<B: Block>(c: u8, basis: &BasisSet<B>) -> BitString<B> {
 	let mut result = !BitString::zero(basis[0].len());
 	for i in 0..8 {
@@ -103,6 +145,30 @@ pub fn byte<B: Block>(c: u8, basis: &BasisSet<B>) -> BitString<B> {
 		}
 	}
 	return result;
+}
+
+async fn async_bit<B: Block>(c: u8, i: usize, basis: Arc<BasisSet<B>>) -> BitString<B> {
+	if c.get_bit(i) {
+		basis[i].clone()
+	} else {
+		!basis[i].clone()
+	}
+}
+
+/// Returns a bit string with 1 bits marking the positions of `c` in `basis`.
+pub async fn async_byte<B: Block>(c: u8, basis: Arc<BasisSet<B>>) -> BitString<B> {
+	let (s0, s1, s2, s3, s4, s5, s6, s7) = tokio::try_join!(
+		tokio::spawn(async_bit(c, 0, basis.clone())),
+		tokio::spawn(async_bit(c, 1, basis.clone())),
+		tokio::spawn(async_bit(c, 2, basis.clone())),
+		tokio::spawn(async_bit(c, 3, basis.clone())),
+		tokio::spawn(async_bit(c, 4, basis.clone())),
+		tokio::spawn(async_bit(c, 5, basis.clone())),
+		tokio::spawn(async_bit(c, 6, basis.clone())),
+		tokio::spawn(async_bit(c, 7, basis.clone())),
+	).expect("Failed to process strings");
+
+	s0 & s1 & s2 & s3 & s4 & s5 & s6 & s7
 }
 
 pub fn byte_seq<B: Block>(seq: &[u8], basis: &BasisSet<B>) -> BitString<B> {
@@ -132,7 +198,7 @@ mod test {
 
 	#[tokio::test]
 	async fn basis_length_equivalence() {
-		let b = basis::<u16>(&[0, 0, 0, 0, 0, 0, 0, 0]).await;
+		let b = async_basis::<u16>(&[0, 0, 0, 0, 0, 0, 0, 0]).await;
 		for i in 0..8 {
 			assert_eq!(8, b[i].len());
 		}

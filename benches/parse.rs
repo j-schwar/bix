@@ -4,6 +4,7 @@ extern crate test;
 
 use bix::prelude::*;
 use test::Bencher;
+use std::sync::Arc;
 
 const N: usize = 1_000_000;
 
@@ -24,37 +25,46 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 #[bench]
-fn basis_u8(b: &mut Bencher) {
-	let src = compute_source(N);
-	b.iter(|| {
-		let mut rt = runtime();
-		let _ = rt.block_on(parse::basis::<u8>(&src[..]));
-	});
-}
-
-#[bench]
-fn basis_u16(b: &mut Bencher) {
-	let src = compute_source(N);
-	b.iter(|| {
-		let mut rt = runtime();
-		let _ = rt.block_on(parse::basis::<u16>(&src[..]));
-	});
-}
-
-#[bench]
-fn basis_u32(b: &mut Bencher) {
-	let src = compute_source(N);
-	b.iter(|| {
-		let mut rt = runtime();
-		let _ = rt.block_on(parse::basis::<u32>(&src[..]));
-	});
-}
-
-#[bench]
 fn basis_u64(b: &mut Bencher) {
 	let src = compute_source(N);
 	b.iter(|| {
+		let _ = parse::basis::<u64>(&src[..]);
+	});
+}
+
+#[bench]
+fn async_basis_u64(b: &mut Bencher) {
+	let src = compute_source(N);
+	b.iter(|| {
 		let mut rt = runtime();
-		let _ = rt.block_on(parse::basis::<u64>(&src[..]));
+		let _ = rt.block_on(parse::async_basis::<u64>(&src[..]));
+	});
+}
+
+#[bench]
+fn byte_u64(b: &mut Bencher) {
+	let src = compute_source(N);
+	let basis = {
+		let mut rt = runtime();
+		rt.block_on(parse::async_basis::<u64>(&src[..]))
+	};
+
+	b.iter(|| {
+		let _ = parse::byte(b'a', &basis);
+	})
+}
+
+#[bench]
+fn async_byte_u64(b: &mut Bencher) {
+	let src = compute_source(N);
+	let basis = {
+		let mut rt = runtime();
+		rt.block_on(parse::async_basis::<u64>(&src[..]))
+	};
+	let basis = Arc::new(basis);
+
+	b.iter(|| {
+		let mut rt = runtime();
+		rt.block_on(parse::async_byte(b'a', basis.clone()));
 	});
 }

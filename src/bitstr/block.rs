@@ -18,6 +18,7 @@ pub trait Block:
 	+ Copy
 	+ Debug
 	+ Send
+	+ Sync
 	+ PartialEq
 	+ Eq
 	+ Not<Output = Self>
