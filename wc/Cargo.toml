@@ -7,3 +7,4 @@ edition = "2018"
 [dependencies]
 bix = { path = ".." }
 structopt = "0.3"
+tokio = { version = "0.2.16", features = ["rt-threaded"] }

@@ -41,7 +41,8 @@ fn count_lines<B: Block>(basis: &BasisSet<B>) -> usize {
 	parse::byte(b'\n', basis).pop_count()
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
 	let mut opt = Opt::from_args();
 
 	if !opt.bytes && !opt.words && !opt.lines {
@@ -61,7 +62,7 @@ fn main() {
 	for file in &opt.input_files {
 		match fs::read(&file) {
 			Ok(contents) => {
-				let basis = parse::basis::<BlockType>(&contents[..]);
+				let basis = parse::basis::<BlockType>(&contents[..]).await;
 
 				if opt.lines {
 					let line_count = count_lines(&basis);

@@ -2,10 +2,46 @@
 
 use crate::bitstr::block::FromSlice;
 use crate::prelude::{BitString, Block};
-// use futures::join;
-use tokio::runtime;
+use std::ops::Index;
 
-pub type BasisSet<B> = [BitString<B>; 8];
+/// A collections of bit strings idiomatically referring to the 8 bit strings
+/// which make up the contents of some text.
+///
+/// All bit strings in the set must be the same length. This invariant is
+/// enforced by the `new` constructor.
+pub struct BasisSet<B: Block>([BitString<B>; 8]);
+
+impl<B: Block> BasisSet<B> {
+	pub fn new(arr: [BitString<B>; 8]) -> Self {
+		let len = arr[0].len();
+		for i in 1..8 {
+			if arr[i].len() != len {
+				panic!("All bit strings in a BasisSet must be the same length");
+			}
+		}
+		BasisSet(arr)
+	}
+
+	/// The length of the bit strings in the basis set.
+	///
+	/// Not to be confused with the number of strings in the set.
+	pub fn len(&self) -> usize {
+		self.0[0].len()
+	}
+
+	/// The number of strings in the basis set.
+	pub fn count(&self) -> usize {
+		8
+	}
+}
+
+impl<B: Block> Index<usize> for BasisSet<B> {
+	type Output = BitString<B>;
+
+	fn index(&self, index: usize) -> &Self::Output {
+		&self.0[index]
+	}
+}
 
 /// Returns the `n` bits in each byte of `x` packed together as a u8.
 fn packed_nth_bits_in_bytes(x: u64, n: usize) -> u8 {
@@ -36,29 +72,24 @@ async fn n_bit<B: Block + FromSlice<u8>>(b: BitString<u64>, i: usize) -> BitStri
 		.cast()
 }
 
-pub fn basis<B: Block>(bytes: &[u8]) -> BasisSet<B>
+pub async fn basis<B>(bytes: &[u8]) -> BasisSet<B>
 where
-	B: FromSlice<u8>,
+	B: Block + FromSlice<u8>,
 {
 	let src = BitString::from_blocks(bytes).cast::<u64>();
+	let (b0, b1, b2, b3, b4, b5, b6, b7) = tokio::try_join!(
+		tokio::spawn(n_bit(src.clone(), 0)),
+		tokio::spawn(n_bit(src.clone(), 1)),
+		tokio::spawn(n_bit(src.clone(), 2)),
+		tokio::spawn(n_bit(src.clone(), 3)),
+		tokio::spawn(n_bit(src.clone(), 4)),
+		tokio::spawn(n_bit(src.clone(), 5)),
+		tokio::spawn(n_bit(src.clone(), 6)),
+		tokio::spawn(n_bit(src.clone(), 7)),
+	)
+	.expect("Failed to processes basis strings");
 
-	let f = async {
-		tokio::join!(
-			tokio::spawn(n_bit(src.clone(), 0)),
-			tokio::spawn(n_bit(src.clone(), 1)),
-			tokio::spawn(n_bit(src.clone(), 2)),
-			tokio::spawn(n_bit(src.clone(), 3)),
-			tokio::spawn(n_bit(src.clone(), 4)),
-			tokio::spawn(n_bit(src.clone(), 5)),
-			tokio::spawn(n_bit(src.clone(), 6)),
-			tokio::spawn(n_bit(src.clone(), 7)),
-		)
-	};
-
-	let mut rt = runtime::Runtime::new().expect("Failed to construct runtime");
-	let (b0, b1, b2, b3, b4, b5, b6, b7) = rt.block_on(f);
-
-	[b0.expect(""), b1.expect(""), b2.expect(""), b3.expect(""), b4.expect(""), b5.expect(""), b6.expect(""), b7.expect("")]
+	BasisSet::new([b0, b1, b2, b3, b4, b5, b6, b7])
 }
 
 pub fn byte<B: Block>(c: u8, basis: &BasisSet<B>) -> BitString<B> {
@@ -99,47 +130,11 @@ mod test {
 		);
 	}
 
-	#[test]
-	fn basis_length_equivalence() {
-		let b = basis::<u16>(&[0, 0, 0, 0, 0, 0, 0, 0]);
+	#[tokio::test]
+	async fn basis_length_equivalence() {
+		let b = basis::<u16>(&[0, 0, 0, 0, 0, 0, 0, 0]).await;
 		for i in 0..8 {
 			assert_eq!(8, b[i].len());
-		}
-	}
-
-	mod property {
-		use super::*;
-		use crate::bitstr::block::FromSlice;
-		use quickcheck_macros::quickcheck;
-
-		fn basis_length_equivalence<B>(src: Vec<u8>) -> bool
-		where
-			B: Block + FromSlice<u8>,
-		{
-			let len = src.len();
-			let basis = basis::<B>(&src[..]);
-			for i in 0..8 {
-				if basis[i].len() != len {
-					return false;
-				}
-			}
-
-			return true;
-		}
-
-		#[quickcheck]
-		fn basis_length_equivalence_u16(src: Vec<u8>) -> bool {
-			basis_length_equivalence::<u16>(src)
-		}
-
-		#[quickcheck]
-		fn basis_length_equivalence_u32(src: Vec<u8>) -> bool {
-			basis_length_equivalence::<u32>(src)
-		}
-
-		#[quickcheck]
-		fn basis_length_equivalence_u64(src: Vec<u8>) -> bool {
-			basis_length_equivalence::<u64>(src)
 		}
 	}
 }
